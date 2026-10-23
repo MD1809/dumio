@@ -13,6 +13,7 @@ target/
 .apt_generated/
 .sts4-cache/
 .springBeans
+README.md
 
 # Test reports and coverage
 coverage/
@@ -73,3 +74,6 @@ $RECYCLE.BIN/
 
 # AI agents
 .agents/
+
+# documentation
+docs/
