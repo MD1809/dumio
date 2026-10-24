@@ -25,7 +25,7 @@ import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 import org.springframework.transaction.annotation.Transactional;
 
-@SpringBootTest
+@SpringBootTest(properties = "app.jwt.secret=MDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWY=")
 @Transactional
 class AuthPersistenceTests {
 
@@ -184,105 +184,92 @@ class AuthPersistenceTests {
     }
 
     @Test
-    void consumedRefreshRemainsFindableWhileReplacementMakesFamilyUsable() {
+    void consumedRefreshRemainsFindableAndCannotBeUsedTwice() {
         User user = activeUser();
-        UUID familyId = UUID.randomUUID();
-        RefreshToken original = newToken(user, familyId);
+        RefreshToken original = newToken(user);
         Instant now = Instant.now();
 
         assertEquals(1, tokens.consumeIfUsable(original.getId(), now));
         assertEquals(0, tokens.consumeIfUsable(original.getId(), now));
-        assertFalse(tokens.existsUsableFamily(user.getId(), familyId, UserRole.USER, now));
-        RefreshToken replacement = newToken(user, familyId);
+        RefreshToken replacement = newToken(user);
         entityManager.clear();
 
         assertNotNull(tokens.findByTokenHash(original.getTokenHash()).orElseThrow().getConsumedAt());
         assertTrue(tokens.findByTokenHash(replacement.getTokenHash()).isPresent());
-        assertTrue(tokens.existsUsableFamily(user.getId(), familyId, UserRole.USER, now));
+        assertEquals(1, tokens.consumeIfUsable(replacement.getId(), now));
     }
 
     @Test
-    void rejectsTwoUnconsumedRefreshTokensInTheSameFamily() {
+    void permitsMultipleRefreshTokensForTheSameAccount() {
         User user = activeUser();
-        UUID familyId = UUID.randomUUID();
-        newToken(user, familyId);
+        RefreshToken first = newToken(user);
+        RefreshToken second = newToken(user);
 
-        assertThrows(DataIntegrityViolationException.class, () -> newToken(user, familyId));
+        assertEquals(1, tokens.consumeIfUsable(first.getId(), Instant.now()));
+        assertEquals(1, tokens.consumeIfUsable(second.getId(), Instant.now()));
     }
 
     @Test
     void rejectsDuplicateRefreshHashes() {
         User user = activeUser();
-        RefreshToken first = newToken(user, UUID.randomUUID());
-        RefreshToken second = tokenFor(user, UUID.randomUUID());
+        RefreshToken first = newToken(user);
+        RefreshToken second = tokenFor(user);
         second.setTokenHash(first.getTokenHash());
 
         assertThrows(DataIntegrityViolationException.class, () -> tokens.saveAndFlush(second));
     }
 
     @Test
-    void refusesExpiredRefreshAndRoleOrOwnerMismatch() {
+    void refusesExpiredRefresh() {
         User user = activeUser();
-        UUID familyId = UUID.randomUUID();
-        RefreshToken token = newToken(user, familyId);
+        RefreshToken token = newToken(user);
         Instant now = Instant.now();
 
-        assertFalse(tokens.existsUsableFamily(user.getId(), familyId, UserRole.ADMIN, now));
-        assertFalse(tokens.existsUsableFamily(UUID.randomUUID(), familyId, UserRole.USER, now));
-        assertFalse(tokens.existsUsableFamily(user.getId(), familyId, UserRole.USER,
-                now.plus(8, ChronoUnit.DAYS)));
         assertEquals(0, tokens.consumeIfUsable(token.getId(), now.plus(8, ChronoUnit.DAYS)));
     }
 
     @Test
-    void disabledUserHasNoUsableFamily() {
+    void tokenVersionDefaultsToZeroAndIncrementsWithoutChangingAnotherAccount() {
         User user = activeUser();
-        UUID familyId = UUID.randomUUID();
-        newToken(user, familyId);
-        user.setStatus(UserStatus.DISABLED);
-        users.saveAndFlush(user);
+        User other = activeUser();
+        assertEquals(0, user.getTokenVersion());
 
-        assertFalse(tokens.existsUsableFamily(user.getId(), familyId, UserRole.USER, Instant.now()));
+        assertEquals(1, users.incrementTokenVersion(user.getId(), Instant.now()));
+        assertEquals(1, users.incrementTokenVersion(user.getId(), Instant.now()));
+        assertEquals(0, users.incrementTokenVersion(UUID.randomUUID(), Instant.now()));
+        entityManager.clear();
+        assertEquals(2, users.findById(user.getId()).orElseThrow().getTokenVersion());
+        assertEquals(0, users.findById(other.getId()).orElseThrow().getTokenVersion());
     }
 
     @Test
-    void revokesOneFamilyIncludingConsumedHistoryWithoutRevokingOtherLogins() {
+    void rejectsNegativeTokenVersionAtDatabaseLevel() {
         User user = activeUser();
-        UUID familyId = UUID.randomUUID();
-        RefreshToken original = newToken(user, familyId);
-        tokens.consumeIfUsable(original.getId(), Instant.now());
-        RefreshToken replacement = newToken(user, familyId);
-        RefreshToken otherLogin = newToken(user, UUID.randomUUID());
-        Instant now = Instant.now();
-
-        assertEquals(2, tokens.revokeByFamilyId(familyId, now));
-        assertEquals(0, tokens.revokeByFamilyId(familyId, now));
-        assertEquals(0, tokens.consumeIfUsable(replacement.getId(), now));
-        assertFalse(tokens.existsUsableFamily(user.getId(), familyId, UserRole.USER, now));
-        assertTrue(tokens.existsUsableFamily(user.getId(), otherLogin.getFamilyId(), UserRole.USER, now));
+        assertThrows(DataIntegrityViolationException.class,
+                () -> jdbc.update("UPDATE users SET token_version = -1 WHERE id = ?", user.getId()));
     }
 
     @Test
     void revokesAllUserLoginsWithoutAffectingAnotherUser() {
         User user = activeUser();
-        RefreshToken first = newToken(user, UUID.randomUUID());
-        RefreshToken second = newToken(user, UUID.randomUUID());
+        RefreshToken first = newToken(user);
+        RefreshToken second = newToken(user);
         User otherUser = activeUser();
-        RefreshToken otherToken = newToken(otherUser, UUID.randomUUID());
+        RefreshToken otherToken = newToken(otherUser);
         Instant now = Instant.now();
 
         assertEquals(2, tokens.revokeByUserId(user.getId(), now));
         assertEquals(0, tokens.consumeIfUsable(first.getId(), now));
         assertEquals(0, tokens.consumeIfUsable(second.getId(), now));
-        assertTrue(tokens.existsUsableFamily(otherUser.getId(), otherToken.getFamilyId(),
-                UserRole.USER, now));
+        assertEquals(0, tokens.revokeByUserId(user.getId(), now));
+        assertEquals(1, tokens.consumeIfUsable(otherToken.getId(), now));
     }
 
     @Test
     void rejectsOrphanOtpAndCascadesDeletionOnlyForItsOwner() {
         User user = newUser();
         newCode(user, OtpPurpose.EMAIL_VERIFICATION, Instant.now().plusSeconds(300));
-        newToken(user, UUID.randomUUID());
+        newToken(user);
 
         jdbc.update("DELETE FROM users WHERE id = ?", user.getId());
         assertEquals(0, jdbc.queryForObject("SELECT count(*) FROM email_otp_codes WHERE user_id = ?",
@@ -327,14 +314,13 @@ class AuthPersistenceTests {
         return code;
     }
 
-    private RefreshToken newToken(User user, UUID familyId) {
-        return tokens.saveAndFlush(tokenFor(user, familyId));
+    private RefreshToken newToken(User user) {
+        return tokens.saveAndFlush(tokenFor(user));
     }
 
-    private RefreshToken tokenFor(User user, UUID familyId) {
+    private RefreshToken tokenFor(User user) {
         RefreshToken token = new RefreshToken();
         token.setUser(user);
-        token.setFamilyId(familyId);
         token.setTokenHash(UUID.randomUUID().toString().replace("-", "")
                 + UUID.randomUUID().toString().replace("-", ""));
         token.setExpiresAt(Instant.now().plus(7, ChronoUnit.DAYS));

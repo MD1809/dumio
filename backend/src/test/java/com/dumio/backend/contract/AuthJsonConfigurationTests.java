@@ -11,7 +11,7 @@ import org.springframework.context.ApplicationContext;
 import tools.jackson.core.JacksonException;
 import tools.jackson.databind.json.JsonMapper;
 
-@SpringBootTest
+@SpringBootTest(properties = "app.jwt.secret=MDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWY=")
 class AuthJsonConfigurationTests {
 
     @Autowired
@@ -31,5 +31,7 @@ class AuthJsonConfigurationTests {
                  "confirmPassword":"Abcde1!x"}
                 """, RegisterRequest.class));
         assertEquals(0, context.getBeanNamesForType(AuthContractTests.ContractFixture.class).length);
+        assertEquals(0, context.getBeanNamesForAnnotation(
+                org.springframework.boot.test.context.TestComponent.class).length);
     }
 }

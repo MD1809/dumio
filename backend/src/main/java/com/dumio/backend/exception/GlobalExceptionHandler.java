@@ -14,6 +14,7 @@ import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatusCode;
 import org.springframework.http.ResponseEntity;
 import org.springframework.http.converter.HttpMessageNotReadableException;
+import org.springframework.security.access.AccessDeniedException;
 import org.springframework.transaction.CannotCreateTransactionException;
 import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
@@ -51,6 +52,12 @@ public class GlobalExceptionHandler extends ResponseEntityExceptionHandler {
     @ExceptionHandler(AuthException.class)
     public ResponseEntity<ErrorResponse> handleAuth(AuthException ex) {
         return response(ex.getErrorCode());
+    }
+
+    @ExceptionHandler(AccessDeniedException.class)
+    public void handleAccessDenied(AccessDeniedException ex) {
+        // Method security failures must reach Spring Security's AccessDeniedHandler.
+        throw ex;
     }
 
     @ExceptionHandler(DataIntegrityViolationException.class)
