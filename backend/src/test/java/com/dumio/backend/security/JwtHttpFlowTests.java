@@ -15,11 +15,17 @@ import java.time.Duration;
 import java.time.Instant;
 import java.util.Map;
 import java.util.UUID;
+import java.util.concurrent.LinkedBlockingQueue;
+import java.util.concurrent.TimeUnit;
+import java.util.regex.Pattern;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.test.web.server.LocalServerPort;
 import org.springframework.security.crypto.password.PasswordEncoder;
+import org.springframework.mail.SimpleMailMessage;
+import org.springframework.mail.javamail.JavaMailSender;
+import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import tools.jackson.databind.json.JsonMapper;
 
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT, properties = {
@@ -32,6 +38,7 @@ class JwtHttpFlowTests {
     @Autowired UserRepository users;
     @Autowired PasswordEncoder passwords;
     @Autowired JsonMapper json;
+    @MockitoBean JavaMailSender sender;
 
     @Test
     void realHttpClientFollowsCookieCsrfRotationAndLogoutFlow() throws Exception {
@@ -88,6 +95,58 @@ class JwtHttpFlowTests {
                     .noneMatch(cookie -> cookie.getName().equals("JSESSIONID")));
         } finally {
             // Only remove the uniquely identified test account; FK cascade removes its test refresh rows.
+            users.deleteById(user.getId());
+        }
+    }
+
+    @Test
+    void realHttpPasswordRecoveryRevokesOldTokensAndAllowsOnlyNewPassword() throws Exception {
+        User user = new User();
+        user.setUsername("Student");
+        user.setEmail("be07-http-" + UUID.randomUUID() + "@example.com");
+        user.setPasswordHash(passwords.encode("Student1!"));
+        user.setStatus(UserStatus.ACTIVE);
+        user.setEmailVerifiedAt(Instant.now());
+        user = users.saveAndFlush(user);
+        var delivered = new LinkedBlockingQueue<SimpleMailMessage>();
+        org.mockito.Mockito.doAnswer(invocation -> {
+            delivered.add(invocation.getArgument(0));
+            return null;
+        }).when(sender).send(org.mockito.ArgumentMatchers.any(SimpleMailMessage.class));
+        var cookies = new CookieManager(null, CookiePolicy.ACCEPT_ALL);
+        try (HttpClient client = HttpClient.newBuilder().cookieHandler(cookies)
+                .connectTimeout(Duration.ofSeconds(5)).build()) {
+            String csrf = csrf(client);
+            String oldCredentials = json.writeValueAsString(Map.of("email", user.getEmail(), "password", "Student1!"));
+            var login = post(client, "login", csrf, oldCredentials);
+            assertEquals(200, login.statusCode());
+            String oldAccess = json.readTree(login.body()).get("accessToken").asText();
+            csrf = csrf(client);
+            var forgot = post(client, "forgot-password", csrf, json.writeValueAsString(Map.of("email", user.getEmail())));
+            assertEquals(202, forgot.statusCode());
+            var otpMail = delivered.poll(5, TimeUnit.SECONDS);
+            assertNotNull(otpMail);
+            var matcher = Pattern.compile("\\b[0-9]{6}\\b").matcher(otpMail.getText());
+            assertTrue(matcher.find());
+            var reset = post(client, "reset-password", csrf, json.writeValueAsString(Map.of(
+                    "email", user.getEmail(), "code", matcher.group(), "newPassword", "Newpass2!", "confirmPassword", "Newpass2!")));
+            assertEquals(200, reset.statusCode());
+            assertEquals(1, json.readTree(reset.body()).size());
+            assertTrue(cookies.getCookieStore().getCookies().stream()
+                    .noneMatch(cookie -> cookie.getName().equals("DUMIO_REFRESH") && !cookie.hasExpired()));
+            var notification = delivered.poll(5, TimeUnit.SECONDS);
+            assertNotNull(notification);
+            assertEquals("Dumio - Mật khẩu đã được thay đổi", notification.getSubject());
+            assertFalse(notification.getText().contains("Newpass2!"));
+            assertEquals(401, me(client, oldAccess).statusCode());
+            csrf = csrf(client);
+            assertEquals(401, post(client, "refresh", csrf, "").statusCode());
+            assertEquals(401, post(client, "login", csrf, oldCredentials).statusCode());
+            String newCredentials = json.writeValueAsString(Map.of("email", user.getEmail(), "password", "Newpass2!"));
+            var newLogin = post(client, "login", csrf, newCredentials);
+            assertEquals(200, newLogin.statusCode());
+            assertEquals(200, me(client, json.readTree(newLogin.body()).get("accessToken").asText()).statusCode());
+        } finally {
             users.deleteById(user.getId());
         }
     }

@@ -1,8 +1,10 @@
 package com.dumio.backend.service;
 
+import com.dumio.backend.dto.request.ForgotPasswordRequest;
 import com.dumio.backend.dto.request.LoginRequest;
 import com.dumio.backend.dto.request.RegisterRequest;
 import com.dumio.backend.dto.request.ResendVerificationRequest;
+import com.dumio.backend.dto.request.ResetPasswordRequest;
 import com.dumio.backend.dto.request.VerifyEmailRequest;
 import com.dumio.backend.dto.response.MessageResponse;
 import com.dumio.backend.dto.response.OtpRequestResponse;
@@ -25,4 +27,8 @@ public interface AuthService {
     UserResponse me(UUID userId);
 
     void logout(String refreshToken);
+
+    OtpRequestResponse forgotPassword(ForgotPasswordRequest request);
+
+    MessageResponse resetPassword(ResetPasswordRequest request);
 }

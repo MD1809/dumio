@@ -26,6 +26,16 @@ public interface UserRepository extends JpaRepository<User, UUID> {
             """)
     int activatePendingUser(@Param("id") UUID id, @Param("now") Instant now);
 
+    @Transactional
+    @Modifying(flushAutomatically = true)
+    @Query("""
+            update User u set u.passwordHash = :passwordHash, u.updatedAt = :now
+            where u.id = :id and u.status = com.dumio.backend.enums.UserStatus.ACTIVE
+                and u.emailVerifiedAt is not null
+            """)
+    int updatePasswordIfActive(@Param("id") UUID id, @Param("passwordHash") String passwordHash,
+            @Param("now") Instant now);
+
     // Call together with refresh revocation in the enclosing service transaction.
     // Reload a managed User before issuing another JWT after this bulk update.
     @Transactional

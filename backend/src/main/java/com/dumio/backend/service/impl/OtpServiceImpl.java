@@ -83,6 +83,12 @@ public class OtpServiceImpl implements OtpService {
         codes.invalidateIfUnused(otpId, Instant.now());
     }
 
+    @Override
+    @Transactional
+    public void invalidateAvailable(UUID userId, OtpPurpose purpose) {
+        codes.invalidateAvailableByUserAndPurpose(userId, purpose, Instant.now());
+    }
+
     private String digest(UUID userId, OtpPurpose purpose, UUID otpId, String code) {
         try {
             Mac mac = Mac.getInstance("HmacSHA256");

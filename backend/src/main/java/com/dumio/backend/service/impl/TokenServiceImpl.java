@@ -19,6 +19,7 @@ import java.time.Instant;
 import java.util.Base64;
 import java.util.HexFormat;
 import java.util.List;
+import java.util.UUID;
 import java.util.regex.Pattern;
 import org.springframework.dao.DataAccessResourceFailureException;
 import org.springframework.security.oauth2.jose.jws.MacAlgorithm;
@@ -91,7 +92,13 @@ public class TokenServiceImpl implements TokenService {
         if (tokens.revokeIfNotRevoked(stored.getId(), now) == 0) {
             return;
         }
-        var userId = stored.getUser().getId();
+        revokeAllForUser(stored.getUser().getId());
+    }
+
+    @Override
+    @Transactional
+    public void revokeAllForUser(UUID userId) {
+        Instant now = Instant.now();
         tokens.revokeByUserId(userId, now);
         if (users.incrementTokenVersion(userId, now) != 1) {
             throw new DataAccessResourceFailureException("Account revocation could not be completed");

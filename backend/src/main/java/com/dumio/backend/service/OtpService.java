@@ -11,4 +11,6 @@ public interface OtpService {
     void consume(User user, OtpPurpose purpose, String code);
 
     void invalidateAfterDeliveryFailure(UUID otpId);
+
+    void invalidateAvailable(UUID userId, OtpPurpose purpose);
 }

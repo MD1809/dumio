@@ -1,8 +1,10 @@
 package com.dumio.backend.controller;
 
 import com.dumio.backend.config.JwtConfig;
+import com.dumio.backend.dto.request.ForgotPasswordRequest;
 import com.dumio.backend.dto.request.LoginRequest;
 import com.dumio.backend.dto.request.RegisterRequest;
+import com.dumio.backend.dto.request.ResetPasswordRequest;
 import com.dumio.backend.dto.request.ResendVerificationRequest;
 import com.dumio.backend.dto.request.VerifyEmailRequest;
 import com.dumio.backend.dto.response.CsrfResponse;
@@ -100,6 +102,20 @@ public class AuthController {
         setRefreshCookie("", 0, request, response);
         csrfTokens.saveToken(null, request, response);
         return ResponseEntity.noContent().cacheControl(CacheControl.noStore()).build();
+    }
+
+    @PostMapping("/forgot-password")
+    public ResponseEntity<OtpRequestResponse> forgotPassword(@Valid @RequestBody ForgotPasswordRequest body) {
+        return ResponseEntity.accepted().cacheControl(CacheControl.noStore()).body(authService.forgotPassword(body));
+    }
+
+    @PostMapping("/reset-password")
+    public ResponseEntity<MessageResponse> resetPassword(@Valid @RequestBody ResetPasswordRequest body,
+            HttpServletRequest request, HttpServletResponse response) {
+        MessageResponse result = authService.resetPassword(body);
+        setRefreshCookie("", 0, request, response);
+        csrfTokens.saveToken(null, request, response);
+        return ResponseEntity.ok().cacheControl(CacheControl.noStore()).body(result);
     }
 
     private void setRefreshCookie(String value, long maxAge, HttpServletRequest request, HttpServletResponse response) {

@@ -2,6 +2,7 @@ package com.dumio.backend.service.impl;
 
 import com.dumio.backend.enums.OtpPurpose;
 import com.dumio.backend.event.OtpMailEvent;
+import com.dumio.backend.event.PasswordChangedEvent;
 import com.dumio.backend.service.MailService;
 import com.dumio.backend.service.OtpService;
 import java.time.Instant;
@@ -30,6 +31,15 @@ public class MailServiceImpl implements MailService {
             Không chia sẻ mã này với người khác.
 
             Nếu bạn không yêu cầu thao tác này, hãy bỏ qua email.
+
+            Dumio
+            """;
+
+    private static final String PASSWORD_CHANGED_BODY = """
+            Xin chào,
+
+            Mật khẩu tài khoản Dumio của bạn đã được thay đổi thành công.
+            Bạn cần đăng nhập lại để tiếp tục sử dụng.
 
             Dumio
             """;
@@ -69,6 +79,23 @@ public class MailServiceImpl implements MailService {
             // Avoid async's default exception logger printing sensitive nested exception messages.
             log.error("OTP email processing failed: {}", ex.getClass().getSimpleName());
             invalidateFailedDelivery(event);
+        }
+    }
+
+    @Override
+    @Async("otpMailExecutor")
+    @TransactionalEventListener(phase = TransactionPhase.AFTER_COMMIT)
+    public void sendPasswordChanged(PasswordChangedEvent event) {
+        try {
+            SimpleMailMessage message = new SimpleMailMessage();
+            message.setFrom(from);
+            message.setTo(event.email());
+            message.setSubject("Dumio - Mật khẩu đã được thay đổi");
+            message.setText(PASSWORD_CHANGED_BODY);
+            sender.send(message);
+        } catch (RuntimeException ex) {
+            // The password change is already committed. Never undo it for a notification failure.
+            log.warn("Password change notification failed: {}", ex.getClass().getSimpleName());
         }
     }
 

@@ -103,17 +103,20 @@ class AuthSecurityTests {
             case "verify-email" -> """
                     {"email":"test@example.com","code":"012345"}
                     """;
-            case "resend-verification" -> """
+            case "resend-verification", "forgot-password" -> """
                     {"email":"test@example.com"}
                     """;
             case "login" -> """
                     {"email":"test@example.com","password":"Student1!"}
                     """;
+            case "reset-password" -> """
+                    {"email":"test@example.com","code":"012345","newPassword":"Newpass2!","confirmPassword":"Newpass2!"}
+                    """;
             default -> "{}";
         };
         int expected = switch (endpoint) {
             case "register" -> 201;
-            case "resend-verification" -> 202;
+            case "resend-verification", "forgot-password" -> 202;
             case "logout" -> 204;
             default -> 200;
         };
@@ -360,7 +363,5 @@ class AuthSecurityTests {
         @PreAuthorize("hasRole('ADMIN')")
         public Map<String, String> admin() { return Map.of("message", "admin"); }
 
-        @PostMapping({"/api/v1/auth/forgot-password", "/api/v1/auth/reset-password"})
-        public Map<String, String> futureBusinessEndpoint() { return Map.of("message", "fixture"); }
     }
 }
