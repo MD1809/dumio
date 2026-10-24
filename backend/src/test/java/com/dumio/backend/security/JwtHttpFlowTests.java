@@ -5,6 +5,8 @@ import static org.junit.jupiter.api.Assertions.*;
 import com.dumio.backend.entity.User;
 import com.dumio.backend.enums.UserStatus;
 import com.dumio.backend.repository.UserRepository;
+import com.dumio.backend.repository.EmailOtpCodeRepository;
+import com.dumio.backend.enums.OtpPurpose;
 import java.net.CookieManager;
 import java.net.CookiePolicy;
 import java.net.URI;
@@ -36,6 +38,7 @@ class JwtHttpFlowTests {
 
     @LocalServerPort int port;
     @Autowired UserRepository users;
+    @Autowired EmailOtpCodeRepository codes;
     @Autowired PasswordEncoder passwords;
     @Autowired JsonMapper json;
     @MockitoBean JavaMailSender sender;
@@ -148,6 +151,56 @@ class JwtHttpFlowTests {
             assertEquals(200, me(client, json.readTree(newLogin.body()).get("accessToken").asText()).statusCode());
         } finally {
             users.deleteById(user.getId());
+        }
+    }
+
+    @Test
+    void realHttpRegistrationResendVerificationAndLoginFollowThePublishedContract() throws Exception {
+        String email = "be08-http-" + UUID.randomUUID() + "@example.com";
+        var delivered = new LinkedBlockingQueue<SimpleMailMessage>();
+        org.mockito.Mockito.doAnswer(invocation -> {
+            delivered.add(invocation.getArgument(0));
+            return null;
+        }).when(sender).send(org.mockito.ArgumentMatchers.any(SimpleMailMessage.class));
+        var cookies = new CookieManager(null, CookiePolicy.ACCEPT_ALL);
+        try (HttpClient client = HttpClient.newBuilder().cookieHandler(cookies)
+                .connectTimeout(Duration.ofSeconds(5)).build()) {
+            String csrf = csrf(client);
+            var register = post(client, "register", csrf, json.writeValueAsString(Map.of(
+                    "username", "  Nguyen   An  ", "email", " " + email.toUpperCase(java.util.Locale.ROOT) + " ",
+                    "password", "Student1!", "confirmPassword", "Student1!")));
+            assertEquals(201, register.statusCode());
+            var body = json.readTree(register.body());
+            assertEquals("Nguyen An", body.get("user").get("username").asText());
+            assertEquals(email, body.get("user").get("email").asText());
+            assertEquals("USER", body.get("user").get("role").asText());
+            assertTrue(body.get("verificationRequired").asBoolean());
+            assertEquals(300, body.get("expiresInSeconds").asInt());
+            assertFalse(body.has("accessToken"));
+            assertNotNull(delivered.poll(5, TimeUnit.SECONDS));
+            var user = users.findByEmail(email).orElseThrow();
+            assertEquals(UserStatus.PENDING_VERIFICATION, user.getStatus());
+            var original = codes.findByUserIdAndPurposeAndUsedAtIsNullAndInvalidatedAtIsNull(
+                    user.getId(), OtpPurpose.EMAIL_VERIFICATION).orElseThrow();
+            String credentials = json.writeValueAsString(Map.of("email", email, "password", "Student1!"));
+            assertEquals(401, post(client, "login", csrf, credentials).statusCode());
+            var resend = post(client, "resend-verification", csrf, json.writeValueAsString(Map.of("email", email)));
+            assertEquals(202, resend.statusCode());
+            assertEquals(300, json.readTree(resend.body()).get("expiresInSeconds").asInt());
+            var replacement = delivered.poll(5, TimeUnit.SECONDS);
+            assertNotNull(replacement);
+            assertNotNull(codes.findById(original.getId()).orElseThrow().getInvalidatedAt());
+            var matcher = Pattern.compile("\\b[0-9]{6}\\b").matcher(replacement.getText());
+            assertTrue(matcher.find());
+            String verification = json.writeValueAsString(Map.of("email", email, "code", matcher.group()));
+            assertEquals(200, post(client, "verify-email", csrf, verification).statusCode());
+            assertEquals(UserStatus.ACTIVE, users.findById(user.getId()).orElseThrow().getStatus());
+            assertEquals(400, post(client, "verify-email", csrf, verification).statusCode());
+            var login = post(client, "login", csrf, credentials);
+            assertEquals(200, login.statusCode());
+            assertEquals(200, me(client, json.readTree(login.body()).get("accessToken").asText()).statusCode());
+        } finally {
+            users.findByEmail(email).ifPresent(user -> users.deleteById(user.getId()));
         }
     }
 

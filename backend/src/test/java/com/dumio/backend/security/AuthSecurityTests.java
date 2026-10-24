@@ -191,7 +191,9 @@ class AuthSecurityTests {
 
     @ParameterizedTest
     @ValueSource(strings = {"expired", "future", "issuer", "audience", "missing-exp", "missing-iat",
-            "missing-nbf", "subject", "role", "roles-type", "version-string", "version-negative", "missing-version"})
+            "missing-nbf", "subject", "role", "roles-type", "version-string", "version-negative", "missing-version",
+            "missing-subject", "missing-issuer", "missing-audience", "missing-roles", "roles-empty", "roles-multiple",
+            "version-fraction", "version-boolean", "issued-future", "audience-type"})
     void rejectsInvalidClaims(String scenario) throws Exception {
         User user = account(UserRole.USER);
         Map<String, Object> claims = claims(user);
@@ -213,6 +215,16 @@ class AuthSecurityTests {
             case "version-string" -> claims.put("token_version", "0");
             case "version-negative" -> claims.put("token_version", -1);
             case "missing-version" -> claims.remove("token_version");
+            case "missing-subject" -> claims.remove("sub");
+            case "missing-issuer" -> claims.remove("iss");
+            case "missing-audience" -> claims.remove("aud");
+            case "missing-roles" -> claims.remove("roles");
+            case "roles-empty" -> claims.put("roles", List.of());
+            case "roles-multiple" -> claims.put("roles", List.of("USER", "ADMIN"));
+            case "version-fraction" -> claims.put("token_version", 0.5);
+            case "version-boolean" -> claims.put("token_version", true);
+            case "issued-future" -> claims.put("iat", Instant.now().plusSeconds(120));
+            case "audience-type" -> claims.put("aud", 123);
             default -> fail("Unknown case");
         }
         mvc.perform(get("/__security/private").header(HttpHeaders.AUTHORIZATION, "Bearer " + encode(claims)))
