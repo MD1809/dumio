@@ -90,6 +90,12 @@ class AuthSecurityTests {
             "refresh", "logout", "forgot-password", "reset-password"})
     void everyCookiePostAcceptsRealCookieAndMaskedHeader(String endpoint) throws Exception {
         var csrf = csrf();
+        var pair = new com.dumio.backend.service.TokenService.TokenPair(
+                new com.dumio.backend.dto.response.TokenResponse("fixture", "Bearer", 900,
+                        new com.dumio.backend.dto.response.UserResponse(UUID.randomUUID(), "Fixture",
+                                "fixture@example.com", UserRole.USER)), "fixture-refresh");
+        org.mockito.Mockito.when(authService.login(org.mockito.ArgumentMatchers.any())).thenReturn(pair);
+        org.mockito.Mockito.when(authService.refresh(org.mockito.ArgumentMatchers.any())).thenReturn(pair);
         String body = switch (endpoint) {
             case "register" -> """
                     {"username":"Student","email":"test@example.com","password":"Student1!","confirmPassword":"Student1!"}
@@ -100,11 +106,15 @@ class AuthSecurityTests {
             case "resend-verification" -> """
                     {"email":"test@example.com"}
                     """;
+            case "login" -> """
+                    {"email":"test@example.com","password":"Student1!"}
+                    """;
             default -> "{}";
         };
         int expected = switch (endpoint) {
             case "register" -> 201;
             case "resend-verification" -> 202;
+            case "logout" -> 204;
             default -> 200;
         };
         var result = mvc.perform(post("/api/v1/auth/" + endpoint)
@@ -350,8 +360,7 @@ class AuthSecurityTests {
         @PreAuthorize("hasRole('ADMIN')")
         public Map<String, String> admin() { return Map.of("message", "admin"); }
 
-        @PostMapping({"/api/v1/auth/login", "/api/v1/auth/refresh", "/api/v1/auth/logout",
-                "/api/v1/auth/forgot-password", "/api/v1/auth/reset-password"})
+        @PostMapping({"/api/v1/auth/forgot-password", "/api/v1/auth/reset-password"})
         public Map<String, String> futureBusinessEndpoint() { return Map.of("message", "fixture"); }
     }
 }

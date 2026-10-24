@@ -27,6 +27,7 @@ public class JwtConfig {
     public static final String ISSUER = "dumio-local";
     public static final String AUDIENCE = "dumio-api";
     public static final long ACCESS_TOKEN_SECONDS = 900;
+    public static final long REFRESH_TOKEN_SECONDS = 604800;
 
     @Bean
     SecretKey jwtSecretKey(@Value("${app.jwt.secret}") String encodedSecret) {

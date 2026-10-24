@@ -7,6 +7,7 @@ import java.sql.SQLException;
 import java.util.Comparator;
 import java.util.List;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.dao.DataAccessException;
 import org.springframework.dao.DataAccessResourceFailureException;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.dao.QueryTimeoutException;
@@ -15,7 +16,9 @@ import org.springframework.http.HttpStatusCode;
 import org.springframework.http.ResponseEntity;
 import org.springframework.http.converter.HttpMessageNotReadableException;
 import org.springframework.security.access.AccessDeniedException;
+import org.springframework.security.authentication.AuthenticationServiceException;
 import org.springframework.transaction.CannotCreateTransactionException;
+import org.springframework.transaction.TransactionException;
 import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
@@ -58,6 +61,17 @@ public class GlobalExceptionHandler extends ResponseEntityExceptionHandler {
     public void handleAccessDenied(AccessDeniedException ex) {
         // Method security failures must reach Spring Security's AccessDeniedHandler.
         throw ex;
+    }
+
+    @ExceptionHandler(AuthenticationServiceException.class)
+    public ResponseEntity<ErrorResponse> handleAuthenticationService(AuthenticationServiceException ex) {
+        // DaoAuthenticationProvider wraps storage failures; do not report them as incorrect credentials.
+        for (Throwable cause = ex; cause != null; cause = cause.getCause()) {
+            if (cause instanceof DataAccessException || cause instanceof TransactionException) {
+                return handleUnavailable(ex);
+            }
+        }
+        return internalError(ex);
     }
 
     @ExceptionHandler(DataIntegrityViolationException.class)

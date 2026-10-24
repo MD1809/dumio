@@ -1,5 +1,7 @@
 package com.dumio.backend.controller;
 
+import com.dumio.backend.config.JwtConfig;
+import com.dumio.backend.dto.request.LoginRequest;
 import com.dumio.backend.dto.request.RegisterRequest;
 import com.dumio.backend.dto.request.ResendVerificationRequest;
 import com.dumio.backend.dto.request.VerifyEmailRequest;
@@ -7,12 +9,24 @@ import com.dumio.backend.dto.response.CsrfResponse;
 import com.dumio.backend.dto.response.MessageResponse;
 import com.dumio.backend.dto.response.OtpRequestResponse;
 import com.dumio.backend.dto.response.RegisterResponse;
+import com.dumio.backend.dto.response.TokenResponse;
+import com.dumio.backend.dto.response.UserResponse;
 import com.dumio.backend.service.AuthService;
+import com.dumio.backend.service.TokenService;
+import jakarta.servlet.http.HttpServletRequest;
+import jakarta.servlet.http.HttpServletResponse;
 import jakarta.validation.Valid;
+import java.util.UUID;
 import org.springframework.http.CacheControl;
+import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
+import org.springframework.http.ResponseCookie;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.core.annotation.AuthenticationPrincipal;
+import org.springframework.security.oauth2.jwt.Jwt;
+import org.springframework.security.web.csrf.CookieCsrfTokenRepository;
 import org.springframework.security.web.csrf.CsrfToken;
+import org.springframework.web.bind.annotation.CookieValue;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
@@ -23,10 +37,15 @@ import org.springframework.web.bind.annotation.RestController;
 @RequestMapping("/api/v1/auth")
 public class AuthController {
 
-    private final AuthService authService;
+    private static final String REFRESH_COOKIE = "DUMIO_REFRESH";
+    private static final String COOKIE_PATH = "/api/v1/auth";
 
-    public AuthController(AuthService authService) {
+    private final AuthService authService;
+    private final CookieCsrfTokenRepository csrfTokens;
+
+    public AuthController(AuthService authService, CookieCsrfTokenRepository csrfTokens) {
         this.authService = authService;
+        this.csrfTokens = csrfTokens;
     }
 
     @PostMapping("/register")
@@ -49,5 +68,43 @@ public class AuthController {
         // Return the framework's masked token; the cookie remains HttpOnly.
         return ResponseEntity.ok().cacheControl(CacheControl.noStore())
                 .body(new CsrfResponse(token.getToken(), token.getHeaderName()));
+    }
+
+    @PostMapping("/login")
+    public ResponseEntity<TokenResponse> login(@Valid @RequestBody LoginRequest body,
+            HttpServletRequest request, HttpServletResponse response) {
+        TokenService.TokenPair tokens = authService.login(body);
+        setRefreshCookie(tokens.refreshToken(), JwtConfig.REFRESH_TOKEN_SECONDS, request, response);
+        csrfTokens.saveToken(null, request, response);
+        return ResponseEntity.ok().cacheControl(CacheControl.noStore()).body(tokens.response());
+    }
+
+    @PostMapping("/refresh")
+    public ResponseEntity<TokenResponse> refresh(@CookieValue(name = REFRESH_COOKIE, required = false) String refresh,
+            HttpServletRequest request, HttpServletResponse response) {
+        TokenService.TokenPair tokens = authService.refresh(refresh);
+        setRefreshCookie(tokens.refreshToken(), JwtConfig.REFRESH_TOKEN_SECONDS, request, response);
+        return ResponseEntity.ok().cacheControl(CacheControl.noStore()).body(tokens.response());
+    }
+
+    @GetMapping("/me")
+    public ResponseEntity<UserResponse> me(@AuthenticationPrincipal Jwt jwt) {
+        return ResponseEntity.ok().cacheControl(CacheControl.noStore())
+                .body(authService.me(UUID.fromString(jwt.getSubject())));
+    }
+
+    @PostMapping("/logout")
+    public ResponseEntity<Void> logout(@CookieValue(name = REFRESH_COOKIE, required = false) String refresh,
+            HttpServletRequest request, HttpServletResponse response) {
+        authService.logout(refresh);
+        setRefreshCookie("", 0, request, response);
+        csrfTokens.saveToken(null, request, response);
+        return ResponseEntity.noContent().cacheControl(CacheControl.noStore()).build();
+    }
+
+    private void setRefreshCookie(String value, long maxAge, HttpServletRequest request, HttpServletResponse response) {
+        ResponseCookie cookie = ResponseCookie.from(REFRESH_COOKIE, value).httpOnly(true)
+                .secure(request.isSecure()).sameSite("Lax").path(COOKIE_PATH).maxAge(maxAge).build();
+        response.addHeader(HttpHeaders.SET_COOKIE, cookie.toString());
     }
 }

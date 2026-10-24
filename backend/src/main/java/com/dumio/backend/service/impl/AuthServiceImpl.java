@@ -1,12 +1,14 @@
 package com.dumio.backend.service.impl;
 
 import com.dumio.backend.config.OtpConfig;
+import com.dumio.backend.dto.request.LoginRequest;
 import com.dumio.backend.dto.request.RegisterRequest;
 import com.dumio.backend.dto.request.ResendVerificationRequest;
 import com.dumio.backend.dto.request.VerifyEmailRequest;
 import com.dumio.backend.dto.response.MessageResponse;
 import com.dumio.backend.dto.response.OtpRequestResponse;
 import com.dumio.backend.dto.response.RegisterResponse;
+import com.dumio.backend.dto.response.UserResponse;
 import com.dumio.backend.entity.User;
 import com.dumio.backend.enums.ErrorCode;
 import com.dumio.backend.enums.OtpPurpose;
@@ -17,7 +19,13 @@ import com.dumio.backend.mapper.UserMapper;
 import com.dumio.backend.repository.UserRepository;
 import com.dumio.backend.service.AuthService;
 import com.dumio.backend.service.OtpService;
+import com.dumio.backend.service.TokenService;
 import java.time.Instant;
+import java.util.UUID;
+import org.springframework.security.authentication.AccountStatusException;
+import org.springframework.security.authentication.AuthenticationManager;
+import org.springframework.security.authentication.BadCredentialsException;
+import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -29,12 +37,17 @@ public class AuthServiceImpl implements AuthService {
     private final OtpService otpService;
     private final PasswordEncoder passwords;
     private final UserMapper mapper;
+    private final AuthenticationManager authenticationManager;
+    private final TokenService tokenService;
 
-    public AuthServiceImpl(UserRepository users, OtpService otpService, PasswordEncoder passwords, UserMapper mapper) {
+    public AuthServiceImpl(UserRepository users, OtpService otpService, PasswordEncoder passwords, UserMapper mapper,
+            AuthenticationManager authenticationManager, TokenService tokenService) {
         this.users = users;
         this.otpService = otpService;
         this.passwords = passwords;
         this.mapper = mapper;
+        this.authenticationManager = authenticationManager;
+        this.tokenService = tokenService;
     }
 
     @Override
@@ -75,6 +88,41 @@ public class AuthServiceImpl implements AuthService {
                 .ifPresent(user -> otpService.issue(user, OtpPurpose.EMAIL_VERIFICATION));
         return new OtpRequestResponse("Hệ thống sẽ gửi mã qua email",
                 OtpConfig.OTP_TTL_SECONDS);
+    }
+
+    @Override
+    @Transactional
+    public TokenService.TokenPair login(LoginRequest request) {
+        try {
+            authenticationManager.authenticate(
+                    UsernamePasswordAuthenticationToken.unauthenticated(request.email(), request.password()));
+        } catch (BadCredentialsException | AccountStatusException ex) {
+            throw new AuthException(ErrorCode.AUTHENTICATION_FAILED);
+        }
+        User user = users.findByEmail(request.email())
+                .filter(account -> account.getStatus() == UserStatus.ACTIVE && account.getEmailVerifiedAt() != null)
+                .orElseThrow(() -> new AuthException(ErrorCode.AUTHENTICATION_FAILED));
+        return tokenService.issue(user);
+    }
+
+    @Override
+    @Transactional
+    public TokenService.TokenPair refresh(String refreshToken) {
+        return tokenService.rotate(refreshToken);
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public UserResponse me(UUID userId) {
+        return users.findById(userId)
+                .filter(account -> account.getStatus() == UserStatus.ACTIVE && account.getEmailVerifiedAt() != null)
+                .map(mapper::toResponse).orElseThrow(() -> new AuthException(ErrorCode.INVALID_ACCESS_TOKEN));
+    }
+
+    @Override
+    @Transactional
+    public void logout(String refreshToken) {
+        tokenService.revokeForLogout(refreshToken);
     }
 
     private boolean isPending(User user) {
