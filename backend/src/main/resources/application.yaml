@@ -11,3 +11,9 @@ spring:
 
 server:
   port: ${SERVER_PORT:8080}
+
+logging:
+  level:
+    # Hibernate constraint errors can include complete rows with password hashes.
+    # GlobalExceptionHandler logs sanitized error types instead.
+    org.hibernate.orm.jdbc.error: "OFF"
