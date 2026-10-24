@@ -6,6 +6,7 @@ import java.time.Duration;
 import java.util.Base64;
 import javax.crypto.SecretKey;
 import javax.crypto.spec.SecretKeySpec;
+import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
@@ -42,12 +43,13 @@ public class JwtConfig {
     }
 
     @Bean
-    JwtEncoder jwtEncoder(SecretKey jwtSecretKey) {
+    JwtEncoder jwtEncoder(@Qualifier("jwtSecretKey") SecretKey jwtSecretKey) {
         return new NimbusJwtEncoder(new ImmutableSecret<>(jwtSecretKey));
     }
 
     @Bean
-    JwtDecoder jwtDecoder(SecretKey jwtSecretKey, CurrentAccountJwtValidator accountValidator) {
+    JwtDecoder jwtDecoder(@Qualifier("jwtSecretKey") SecretKey jwtSecretKey,
+            CurrentAccountJwtValidator accountValidator) {
         NimbusJwtDecoder decoder = NimbusJwtDecoder.withSecretKey(jwtSecretKey)
                 .macAlgorithm(MacAlgorithm.HS256).build();
         var standard = new DelegatingOAuth2TokenValidator<Jwt>(

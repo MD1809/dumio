@@ -23,7 +23,9 @@ import org.springframework.security.oauth2.jwt.*;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
 
-@SpringBootTest(properties = "app.jwt.secret=MDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWY=")
+@SpringBootTest(properties = {"app.jwt.secret=MDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWY=",
+        "app.otp.secret=YWJjZGVmMDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODk=",
+        "spring.mail.username=test@example.com", "spring.mail.password=unused"})
 @AutoConfigureMockMvc
 @Import(AuthSecurityTests.Fixture.class)
 class AuthSecurityFailureTests {

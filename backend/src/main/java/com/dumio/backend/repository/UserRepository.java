@@ -16,6 +16,16 @@ public interface UserRepository extends JpaRepository<User, UUID> {
 
     boolean existsByEmail(String email);
 
+    @Transactional
+    @Modifying(flushAutomatically = true)
+    @Query("""
+            update User u set u.status = com.dumio.backend.enums.UserStatus.ACTIVE,
+                u.emailVerifiedAt = :now, u.updatedAt = :now
+            where u.id = :id and u.status = com.dumio.backend.enums.UserStatus.PENDING_VERIFICATION
+                and u.emailVerifiedAt is null
+            """)
+    int activatePendingUser(@Param("id") UUID id, @Param("now") Instant now);
+
     // Call together with refresh revocation in the enclosing service transaction.
     // Reload a managed User before issuing another JWT after this bulk update.
     @Transactional

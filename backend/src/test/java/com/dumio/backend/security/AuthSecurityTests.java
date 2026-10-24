@@ -9,6 +9,7 @@ import com.dumio.backend.entity.User;
 import com.dumio.backend.enums.UserRole;
 import com.dumio.backend.enums.UserStatus;
 import com.dumio.backend.repository.UserRepository;
+import com.dumio.backend.service.AuthService;
 import jakarta.persistence.EntityManager;
 import jakarta.servlet.http.Cookie;
 import java.time.Instant;
@@ -34,11 +35,14 @@ import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.security.oauth2.jose.jws.MacAlgorithm;
 import org.springframework.security.oauth2.jwt.*;
 import org.springframework.test.web.servlet.MockMvc;
+import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.bind.annotation.*;
 import tools.jackson.databind.json.JsonMapper;
 
-@SpringBootTest(properties = "app.jwt.secret=MDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWY=")
+@SpringBootTest(properties = {"app.jwt.secret=MDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWY=",
+        "app.otp.secret=YWJjZGVmMDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODk=",
+        "spring.mail.username=test@example.com", "spring.mail.password=unused"})
 @AutoConfigureMockMvc
 @Import(AuthSecurityTests.Fixture.class)
 @Transactional
@@ -52,6 +56,7 @@ class AuthSecurityTests {
     @Autowired PasswordEncoder passwords;
     @Autowired AuthenticationManager authenticationManager;
     @Autowired JsonMapper json;
+    @MockitoBean AuthService authService;
 
     @Test
     void csrfEndpointReturnsMaskedTokenAndHttpOnlyCookieWithoutSession() throws Exception {
@@ -85,10 +90,28 @@ class AuthSecurityTests {
             "refresh", "logout", "forgot-password", "reset-password"})
     void everyCookiePostAcceptsRealCookieAndMaskedHeader(String endpoint) throws Exception {
         var csrf = csrf();
+        String body = switch (endpoint) {
+            case "register" -> """
+                    {"username":"Student","email":"test@example.com","password":"Student1!","confirmPassword":"Student1!"}
+                    """;
+            case "verify-email" -> """
+                    {"email":"test@example.com","code":"012345"}
+                    """;
+            case "resend-verification" -> """
+                    {"email":"test@example.com"}
+                    """;
+            default -> "{}";
+        };
+        int expected = switch (endpoint) {
+            case "register" -> 201;
+            case "resend-verification" -> 202;
+            default -> 200;
+        };
         var result = mvc.perform(post("/api/v1/auth/" + endpoint)
+                        .contentType("application/json").content(body)
                         .cookie(csrf.cookie()).header("X-XSRF-TOKEN", csrf.token())
                         .header(HttpHeaders.AUTHORIZATION, "Bearer expired-or-invalid"))
-                .andExpect(status().isOk()).andReturn();
+                .andExpect(status().is(expected)).andReturn();
         assertNull(result.getRequest().getSession(false));
     }
 
@@ -327,8 +350,7 @@ class AuthSecurityTests {
         @PreAuthorize("hasRole('ADMIN')")
         public Map<String, String> admin() { return Map.of("message", "admin"); }
 
-        @PostMapping({"/api/v1/auth/register", "/api/v1/auth/verify-email", "/api/v1/auth/resend-verification",
-                "/api/v1/auth/login", "/api/v1/auth/refresh", "/api/v1/auth/logout",
+        @PostMapping({"/api/v1/auth/login", "/api/v1/auth/refresh", "/api/v1/auth/logout",
                 "/api/v1/auth/forgot-password", "/api/v1/auth/reset-password"})
         public Map<String, String> futureBusinessEndpoint() { return Map.of("message", "fixture"); }
     }
