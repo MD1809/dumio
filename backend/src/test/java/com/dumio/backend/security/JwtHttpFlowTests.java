@@ -6,7 +6,6 @@ import com.dumio.backend.entity.User;
 import com.dumio.backend.enums.UserStatus;
 import com.dumio.backend.repository.UserRepository;
 import com.dumio.backend.repository.EmailOtpCodeRepository;
-import com.dumio.backend.enums.OtpPurpose;
 import java.net.CookieManager;
 import java.net.CookiePolicy;
 import java.net.URI;
@@ -59,7 +58,7 @@ class JwtHttpFlowTests {
             String body = json.writeValueAsString(Map.of("email", user.getEmail(), "password", "Student1!"));
             var login = post(client, "login", csrf, body);
             assertEquals(200, login.statusCode());
-            String access = json.readTree(login.body()).get("accessToken").asText();
+            String access = json.readTree(login.body()).get("accessToken").asString();
             assertEquals("no-store", login.headers().firstValue("Cache-Control").orElseThrow());
             assertTrue(login.headers().allValues("Set-Cookie").stream()
                     .anyMatch(value -> value.startsWith("DUMIO_REFRESH=") && value.contains("HttpOnly")
@@ -71,7 +70,7 @@ class JwtHttpFlowTests {
             csrf = csrf(client); // Login deliberately clears the previous CSRF cookie.
             var refresh = post(client, "refresh", csrf, "");
             assertEquals(200, refresh.statusCode());
-            String refreshedAccess = json.readTree(refresh.body()).get("accessToken").asText();
+            String refreshedAccess = json.readTree(refresh.body()).get("accessToken").asString();
             String currentRefresh = cookies.getCookieStore().getCookies().stream()
                     .filter(cookie -> cookie.getName().equals("DUMIO_REFRESH")).findFirst().orElseThrow().getValue();
             assertFalse(originalRefresh.equals(currentRefresh));
@@ -123,7 +122,7 @@ class JwtHttpFlowTests {
             String oldCredentials = json.writeValueAsString(Map.of("email", user.getEmail(), "password", "Student1!"));
             var login = post(client, "login", csrf, oldCredentials);
             assertEquals(200, login.statusCode());
-            String oldAccess = json.readTree(login.body()).get("accessToken").asText();
+            String oldAccess = json.readTree(login.body()).get("accessToken").asString();
             csrf = csrf(client);
             var forgot = post(client, "forgot-password", csrf, json.writeValueAsString(Map.of("email", user.getEmail())));
             assertEquals(202, forgot.statusCode());
@@ -148,7 +147,7 @@ class JwtHttpFlowTests {
             String newCredentials = json.writeValueAsString(Map.of("email", user.getEmail(), "password", "Newpass2!"));
             var newLogin = post(client, "login", csrf, newCredentials);
             assertEquals(200, newLogin.statusCode());
-            assertEquals(200, me(client, json.readTree(newLogin.body()).get("accessToken").asText()).statusCode());
+            assertEquals(200, me(client, json.readTree(newLogin.body()).get("accessToken").asString()).statusCode());
         } finally {
             users.deleteById(user.getId());
         }
@@ -197,7 +196,7 @@ class JwtHttpFlowTests {
             assertEquals(400, post(client, "verify-email", csrf, verification).statusCode());
             var login = post(client, "login", csrf, credentials);
             assertEquals(200, login.statusCode());
-            assertEquals(200, me(client, json.readTree(login.body()).get("accessToken").asText()).statusCode());
+            assertEquals(200, me(client, json.readTree(login.body()).get("accessToken").asString()).statusCode());
         } finally {
             users.findByEmail(email).ifPresent(user -> users.deleteById(user.getId()));
         }
@@ -207,7 +206,7 @@ class JwtHttpFlowTests {
         var response = client.send(HttpRequest.newBuilder(uri("csrf")).timeout(Duration.ofSeconds(10)).GET().build(),
                 HttpResponse.BodyHandlers.ofString());
         assertEquals(200, response.statusCode());
-        return json.readTree(response.body()).get("token").asText();
+        return json.readTree(response.body()).get("token").asString();
     }
 
     private HttpResponse<String> post(HttpClient client, String path, String csrf, String body) throws Exception {

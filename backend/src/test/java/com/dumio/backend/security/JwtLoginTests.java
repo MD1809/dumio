@@ -4,7 +4,6 @@ import static org.junit.jupiter.api.Assertions.*;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.*;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.*;
 
-import com.dumio.backend.config.JwtConfig;
 import com.dumio.backend.entity.RefreshToken;
 import com.dumio.backend.entity.User;
 import com.dumio.backend.enums.UserRole;
@@ -327,7 +326,7 @@ class JwtLoginTests {
     }
 
     private Session session(MvcResult result) throws Exception {
-        return new Session(json.readTree(result.getResponse().getContentAsString()).get("accessToken").asText(),
+        return new Session(json.readTree(result.getResponse().getContentAsString()).get("accessToken").asString(),
                 result.getResponse().getCookie("DUMIO_REFRESH"));
     }
 
@@ -339,7 +338,7 @@ class JwtLoginTests {
     private CsrfPair csrf() throws Exception {
         var result = mvc.perform(get("/api/v1/auth/csrf")).andExpect(status().isOk()).andReturn();
         return new CsrfPair(result.getResponse().getCookie("XSRF-TOKEN"),
-                json.readTree(result.getResponse().getContentAsString()).get("token").asText());
+                json.readTree(result.getResponse().getContentAsString()).get("token").asString());
     }
 
     private void expire(RefreshToken token) {

@@ -162,7 +162,7 @@ class RegistrationTests {
         Mac mac = Mac.getInstance("HmacSHA256"); mac.init(key); return HexFormat.of().formatHex(mac.doFinal((subject + ":" + purpose + ":" + id + ":" + code).getBytes(StandardCharsets.UTF_8)));
     }
     private CsrfPair csrf() throws Exception {
-        var result = mvc.perform(get("/api/v1/auth/csrf")).andReturn(); return new CsrfPair(result.getResponse().getCookie("XSRF-TOKEN"), json.readTree(result.getResponse().getContentAsString()).get("token").asText());
+        var result = mvc.perform(get("/api/v1/auth/csrf")).andReturn(); return new CsrfPair(result.getResponse().getCookie("XSRF-TOKEN"), json.readTree(result.getResponse().getContentAsString()).get("token").asString());
     }
     private record CsrfPair(Cookie cookie, String token) {}
     private record Fixture(String email, RegisterResponse response, OtpMailEvent mail) { String token() { return response.registrationId().toString(); } }

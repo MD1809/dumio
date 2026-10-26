@@ -168,7 +168,7 @@ class TokenTransactionTests {
     private CsrfPair csrf() throws Exception {
         var result = mvc.perform(get("/api/v1/auth/csrf")).andExpect(status().isOk()).andReturn();
         return new CsrfPair(result.getResponse().getCookie("XSRF-TOKEN"),
-                json.readTree(result.getResponse().getContentAsString()).get("token").asText());
+                json.readTree(result.getResponse().getContentAsString()).get("token").asString());
     }
 
     private record CsrfPair(Cookie cookie, String value) {}

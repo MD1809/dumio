@@ -71,7 +71,7 @@ class AuthSecurityTests {
         assertFalse(cookie.getSecure());
         assertEquals("Lax", cookie.getAttribute("SameSite"));
         assertEquals("/api/v1/auth", cookie.getPath());
-        assertNotEquals(cookie.getValue(), json.readTree(result.getResponse().getContentAsString()).get("token").asText());
+        assertNotEquals(cookie.getValue(), json.readTree(result.getResponse().getContentAsString()).get("token").asString());
         assertNull(result.getRequest().getSession(false));
         assertNull(result.getResponse().getCookie("JSESSIONID"));
     }
@@ -361,7 +361,7 @@ class AuthSecurityTests {
     private CsrfPair csrf() throws Exception {
         var result = mvc.perform(get("/api/v1/auth/csrf")).andExpect(status().isOk()).andReturn();
         return new CsrfPair(result.getResponse().getCookie("XSRF-TOKEN"),
-                json.readTree(result.getResponse().getContentAsString()).get("token").asText());
+                json.readTree(result.getResponse().getContentAsString()).get("token").asString());
     }
 
     private record CsrfPair(Cookie cookie, String token) {}
