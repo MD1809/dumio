@@ -1,16 +1,11 @@
-import { useState } from 'react'
-import './App.css'
+import AppRoutes from './route/AppRoutes.jsx'
+import ToastNotifications from './components/ToastNotifications.jsx'
 
 function App() {
-  const [count, setCount] = useState(0)
-
-  return (
-    <>
-      <h1 className="text-4xl font-bold text-red-600">
-        Dumio - Tailwind CSS Test
-      </h1>
-    </>
-  )
+  return <>
+    <AppRoutes />
+    <ToastNotifications />
+  </>
 }
 
 export default App

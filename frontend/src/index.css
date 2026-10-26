@@ -1,1 +1,54 @@
 @import "tailwindcss";
+
+@theme {
+  --font-sans: Inter, system-ui, sans-serif;
+
+  /* Cherry Blossom: brand and interactive states */
+  --color-primary: #a4133c;
+  --color-primary-hover: #800f2f;
+  --color-on-primary: #ffffff;
+  --color-accent: #ff4d6d;
+  --color-brand: #590d22;
+  --color-focus: var(--color-primary);
+
+  /* Shared backgrounds, content and borders */
+  --color-background: #f8f8f8;
+  --color-surface: #ffffff;
+  --color-surface-soft: #fff0f3;
+  --color-surface-muted: #f3e5e8;
+  --color-text: #2b131a;
+  --color-muted: #7a5b64;
+  --color-placeholder: var(--color-muted);
+  --color-border: #ffccd5;
+  --color-overlay: #334155;
+
+  /* Feedback states */
+  --color-error: #a01717;
+  --color-error-bg: #fff0ef;
+  --color-error-border: #eeb6b1;
+  --color-success: #16a34a;
+  --color-success-bg: #eff9f2;
+  --color-success-border: #accdb7;
+  --color-warning: #b7791f;
+
+  /* Shadows tinted with Midnight Cherry */
+  --shadow-panel: 0 16px 28px -12px #590d2240, 0 5px 10px -5px #590d221a;
+  --shadow-header: 0 1px 8px #590d220a;
+  --shadow-footer: 0 -1px 6px #590d2208;
+  --shadow-stat: 0 1px 3px #590d220a;
+  --shadow-study: 0 3px 5px #590d221c;
+  --shadow-google: 0 1px 3px #590d220c;
+  --shadow-button: 0 3px 6px #590d221c;
+}
+
+:root {
+  font-synthesis: none;
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
+}
+
+@layer base {
+  body { @apply m-0 min-w-80 bg-background font-sans text-text; }
+  a { @apply underline-offset-4; }
+  a:focus-visible { @apply rounded outline-3 outline-focus outline-offset-4; }
+}
