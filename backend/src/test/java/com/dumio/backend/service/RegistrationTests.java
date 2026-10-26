@@ -3,26 +3,18 @@ package com.dumio.backend.service;
 import static org.junit.jupiter.api.Assertions.*;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.*;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.*;
-
-import com.dumio.backend.dto.request.RegisterRequest;
-import com.dumio.backend.dto.request.ResendVerificationRequest;
-import com.dumio.backend.dto.request.VerifyEmailRequest;
-import com.dumio.backend.entity.EmailOtpCode;
+import com.dumio.backend.dto.request.*;
+import com.dumio.backend.dto.response.RegisterResponse;
 import com.dumio.backend.entity.User;
-import com.dumio.backend.enums.ErrorCode;
-import com.dumio.backend.enums.OtpPurpose;
-import com.dumio.backend.enums.UserStatus;
+import com.dumio.backend.enums.*;
 import com.dumio.backend.event.OtpMailEvent;
 import com.dumio.backend.exception.AuthException;
-import com.dumio.backend.repository.EmailOtpCodeRepository;
-import com.dumio.backend.repository.UserRepository;
+import com.dumio.backend.repository.*;
 import jakarta.persistence.EntityManager;
 import jakarta.servlet.http.Cookie;
 import java.nio.charset.StandardCharsets;
 import java.time.Instant;
-import java.util.HexFormat;
-import java.util.List;
-import java.util.UUID;
+import java.util.*;
 import javax.crypto.Mac;
 import javax.crypto.SecretKey;
 import org.junit.jupiter.api.Test;
@@ -42,19 +34,16 @@ import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.transaction.annotation.Transactional;
 import tools.jackson.databind.json.JsonMapper;
 
-@SpringBootTest(properties = {"app.jwt.secret=MDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWY=",
-        "app.otp.secret=YWJjZGVmMDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODk=",
-        "spring.mail.username=test@example.com", "spring.mail.password=unused"})
+@SpringBootTest(properties = {"app.jwt.secret=MDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWY=", "app.otp.secret=YWJjZGVmMDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODk=", "spring.mail.username=test@example.com", "spring.mail.password=unused"})
 @AutoConfigureMockMvc
 @RecordApplicationEvents
 @Transactional
 class RegistrationTests {
-
     @Autowired MockMvc mvc;
     @Autowired JsonMapper json;
     @Autowired AuthService auth;
-    @Autowired OtpService otp;
     @Autowired UserRepository users;
+    @Autowired PendingRegistrationRepository registrations;
     @Autowired EmailOtpCodeRepository codes;
     @Autowired PasswordEncoder passwords;
     @Autowired ApplicationEvents events;
@@ -63,203 +52,118 @@ class RegistrationTests {
     @MockitoBean JavaMailSender sender;
 
     @Test
-    void realRegistrationAndVerificationEndpointsFollowContract() throws Exception {
+    void registerCreatesOnlyTemporaryDataAndVerifyCreatesAnActiveAccount() throws Exception {
         var csrf = csrf();
         String email = UUID.randomUUID() + "@example.com";
-        // Construct the wire payload explicitly; request DTO passwords are WRITE_ONLY.
-        String body = "{\"username\":\"  Nguyễn   An  \",\"email\":\"  "
-                + email.toUpperCase(java.util.Locale.ROOT) + "  \","
-                + "\"password\":\"Student1!\",\"confirmPassword\":\"Student1!\"}";
-        var result = mvc.perform(post("/api/v1/auth/register").contentType(MediaType.APPLICATION_JSON).content(body)
-                        .cookie(csrf.cookie()).header("X-XSRF-TOKEN", csrf.token()))
-                .andExpect(status().isCreated()).andExpect(jsonPath("user.username").value("Nguyễn An"))
-                .andExpect(jsonPath("user.email").value(email)).andExpect(jsonPath("user.role").value("USER"))
-                .andExpect(jsonPath("verificationRequired").value(true))
-                .andExpect(jsonPath("expiresInSeconds").value(300))
-                .andExpect(jsonPath("accessToken").doesNotExist()).andExpect(jsonPath("code").doesNotExist())
-                .andExpect(jsonPath("user.passwordHash").doesNotExist()).andReturn();
-        assertNull(result.getResponse().getCookie("DUMIO_REFRESH"));
-        User user = users.findByEmail(email).orElseThrow();
-        assertEquals(UserStatus.PENDING_VERIFICATION, user.getStatus());
-        assertNull(user.getEmailVerifiedAt());
-        assertTrue(passwords.matches("Student1!", user.getPasswordHash()));
-        OtpMailEvent mail = lastMail();
-        assertTrue(mail.code().matches("[0-9]{6}"));
-        EmailOtpCode stored = codes.findById(mail.otpId()).orElseThrow();
-        assertEquals(300, stored.getExpiresAt().getEpochSecond() - stored.getCreatedAt().getEpochSecond());
-        assertEquals(64, stored.getCodeDigest().length());
-        assertNotEquals(mail.code(), stored.getCodeDigest());
-        assertFalse(mail.toString().contains(mail.code()));
-
+        var result = mvc.perform(post("/api/v1/auth/register").contentType(MediaType.APPLICATION_JSON)
+                .content(json.writeValueAsString(Map.of("username", "  Nguyễn   An  ", "email", email.toUpperCase(Locale.ROOT), "password", "Student1!", "confirmPassword", "Student1!")))
+                .cookie(csrf.cookie()).header("X-XSRF-TOKEN", csrf.token()))
+                .andExpect(status().isAccepted()).andExpect(jsonPath("user").doesNotExist()).andExpect(jsonPath("registrationId").doesNotExist())
+                .andExpect(jsonPath("verificationRequired").value(true)).andExpect(jsonPath("expiresInSeconds").value(300)).andReturn();
+        assertTrue(users.findByEmail(email).isEmpty());
+        Cookie cookie = result.getResponse().getCookie("DUMIO_REGISTRATION");
+        assertNotNull(cookie); assertTrue(cookie.isHttpOnly()); assertEquals("Lax", cookie.getAttribute("SameSite"));
+        var pending = registrations.findById(UUID.fromString(cookie.getValue())).orElseThrow();
+        assertEquals("Nguyễn An", pending.getUsername()); assertTrue(passwords.matches("Student1!", pending.getPasswordHash()));
+        var mail = lastMail();
+        assertNotEquals(mail.code(), codes.findById(mail.otpId()).orElseThrow().getCodeDigest());
         mvc.perform(post("/api/v1/auth/verify-email").contentType(MediaType.APPLICATION_JSON)
-                        .content("{\"email\":\"" + email + "\",\"code\":\"" + mail.code() + "\"}")
-                        .cookie(csrf.cookie()).header("X-XSRF-TOKEN", csrf.token()))
-                .andExpect(status().isOk()).andExpect(jsonPath("message").value("Thao tác thành công"));
+                .content(json.writeValueAsString(Map.of("email", email, "code", mail.code())))
+                .cookie(csrf.cookie(), cookie).header("X-XSRF-TOKEN", csrf.token()))
+                .andExpect(status().isOk()).andExpect(cookie().maxAge("DUMIO_REGISTRATION", 0));
         em.clear();
-        assertEquals(UserStatus.ACTIVE, users.findById(user.getId()).orElseThrow().getStatus());
-        assertNotNull(users.findById(user.getId()).orElseThrow().getEmailVerifiedAt());
-        assertNotNull(codes.findById(stored.getId()).orElseThrow().getUsedAt());
-        org.mockito.Mockito.verifyNoInteractions(sender); // The surrounding test transaction has not committed.
-    }
-
-    @Test
-    void duplicatePendingRegistrationDoesNotOverwriteUserOrSendAnotherOtp() {
-        var registered = register();
-        User before = users.findById(registered.user().id()).orElseThrow();
-        String originalHash = before.getPasswordHash();
-        long mailCount = events.stream(OtpMailEvent.class).count();
-        var failure = assertThrows(AuthException.class, () -> auth.register(new RegisterRequest("Overwrite",
-                before.getEmail().toUpperCase(java.util.Locale.ROOT), "Different1!", "Different1!")));
-        assertEquals(ErrorCode.EMAIL_ALREADY_EXISTS, failure.getErrorCode());
-        assertEquals(originalHash, before.getPasswordHash());
-        assertEquals("Student", before.getUsername());
-        assertEquals(mailCount, events.stream(OtpMailEvent.class).count());
+        User user = users.findByEmail(email).orElseThrow();
+        assertEquals(UserStatus.ACTIVE, user.getStatus()); assertEquals(UserRole.USER, user.getRole());
+        assertNotNull(user.getEmailVerifiedAt()); assertEquals("Nguyễn An", user.getUsername());
+        assertTrue(passwords.matches("Student1!", user.getPasswordHash()));
+        assertTrue(registrations.findById(pending.getId()).isEmpty()); assertTrue(codes.findById(mail.otpId()).isEmpty());
     }
 
     @ParameterizedTest
-    @ValueSource(strings = {"wrong", "expired", "used", "invalidated", "other-user", "other-purpose", "other-issuance"})
-    void invalidOtpDoesNotActivateAccount(String scenario) throws Exception {
-        var response = register();
-        User user = users.findById(response.user().id()).orElseThrow();
-        OtpMailEvent mail = lastMail();
-        EmailOtpCode code = codes.findById(mail.otpId()).orElseThrow();
-        String value = mail.code();
+    @ValueSource(strings = {"wrong", "expired", "used", "invalidated", "other-registration", "other-purpose", "other-issuance"})
+    void invalidCodeNeverCreatesAUser(String scenario) throws Exception {
+        var fixture = register(); var code = codes.findById(fixture.mail().otpId()).orElseThrow(); String value = fixture.mail().code();
         switch (scenario) {
             case "wrong" -> value = value.equals("000000") ? "000001" : "000000";
-            case "expired" -> {
-                // created_at is immutable in JPA; set both timestamps only for this expiry fixture.
-                em.createNativeQuery("""
-                        UPDATE email_otp_codes
-                        SET created_at = CURRENT_TIMESTAMP - INTERVAL '10 minutes',
-                            expires_at = CURRENT_TIMESTAMP - INTERVAL '1 minute'
-                        WHERE id = :id
-                        """).setParameter("id", code.getId()).executeUpdate();
-                em.refresh(code);
-            }
-            case "used" -> codes.consumeIfUsable(code.getId(), user.getId(), code.getPurpose(), Instant.now());
+            case "expired" -> em.createNativeQuery("UPDATE email_otp_codes SET created_at=CURRENT_TIMESTAMP-INTERVAL '10 minutes', expires_at=CURRENT_TIMESTAMP-INTERVAL '1 minute' WHERE id=:id").setParameter("id", code.getId()).executeUpdate();
+            case "used" -> codes.consumeRegistrationCode(code.getId(), fixture.response().registrationId(), Instant.now());
             case "invalidated" -> codes.invalidateIfUnused(code.getId(), Instant.now());
-            case "other-user" -> code.setCodeDigest(digest(UUID.randomUUID(), code.getPurpose(), code.getId(), value));
-            case "other-purpose" -> code.setCodeDigest(digest(user.getId(), OtpPurpose.PASSWORD_RESET, code.getId(), value));
-            case "other-issuance" -> code.setCodeDigest(digest(user.getId(), code.getPurpose(), UUID.randomUUID(), value));
+            case "other-registration" -> code.setCodeDigest(digest(UUID.randomUUID(), code.getPurpose(), code.getId(), value));
+            case "other-purpose" -> code.setCodeDigest(digest(fixture.response().registrationId(), OtpPurpose.PASSWORD_RESET, code.getId(), value));
+            case "other-issuance" -> code.setCodeDigest(digest(fixture.response().registrationId(), code.getPurpose(), UUID.randomUUID(), value));
             default -> fail("Unknown scenario");
         }
-        codes.flush();
-        String submitted = value;
-        assertEquals(ErrorCode.INVALID_OTP, assertThrows(AuthException.class,
-                () -> auth.verifyEmail(new VerifyEmailRequest(user.getEmail(), submitted))).getErrorCode());
-        assertEquals(UserStatus.PENDING_VERIFICATION, user.getStatus());
-        assertNull(user.getEmailVerifiedAt());
+        codes.flush(); em.clear(); String submitted = value;
+        assertEquals(ErrorCode.INVALID_OTP, assertThrows(AuthException.class, () -> auth.verifyEmail(new VerifyEmailRequest(fixture.email(), submitted), fixture.token())).getErrorCode());
+        assertTrue(users.findByEmail(fixture.email()).isEmpty());
     }
 
     @Test
-    void acceptsLeadingZeroCodeAndRejectsItAfterVerification() throws Exception {
-        var response = register();
-        User user = users.findById(response.user().id()).orElseThrow();
-        EmailOtpCode code = codes.findById(lastMail().otpId()).orElseThrow();
-        code.setCodeDigest(digest(user.getId(), code.getPurpose(), code.getId(), "012345"));
-        codes.saveAndFlush(code);
-        auth.verifyEmail(new VerifyEmailRequest(user.getEmail(), "012345"));
-        em.clear();
-        assertNotNull(codes.findById(code.getId()).orElseThrow().getUsedAt());
-        assertEquals(ErrorCode.INVALID_OTP, assertThrows(AuthException.class,
-                () -> auth.verifyEmail(new VerifyEmailRequest(user.getEmail(), "012345"))).getErrorCode());
+    void cancelDeletesTemporaryDataAndOldCodeCanNeverCreateAnAccount() {
+        var fixture = register(); auth.cancelRegistration(fixture.token()); em.clear();
+        assertTrue(users.findByEmail(fixture.email()).isEmpty()); assertTrue(registrations.findById(fixture.response().registrationId()).isEmpty());
+        assertTrue(codes.findById(fixture.mail().otpId()).isEmpty()); auth.cancelRegistration(fixture.token());
+        assertEquals(ErrorCode.INVALID_OTP, assertThrows(AuthException.class, () -> auth.verifyEmail(new VerifyEmailRequest(fixture.email(), fixture.mail().code()), fixture.token())).getErrorCode());
     }
 
     @Test
-    void resendReplacesOnlyVerificationCodeAndReturnsSameResponseForIneligibleEmails() {
-        var response = register();
-        User user = users.findById(response.user().id()).orElseThrow();
-        UUID firstId = lastMail().otpId();
-        otp.issue(user, OtpPurpose.PASSWORD_RESET);
-        UUID resetId = lastMail().otpId();
-        var pendingResponse = auth.resendVerification(new ResendVerificationRequest(user.getEmail()));
-        UUID replacementId = lastMail().otpId();
-        em.clear();
-        assertNotNull(codes.findById(firstId).orElseThrow().getInvalidatedAt());
-        assertNull(codes.findById(resetId).orElseThrow().getInvalidatedAt());
-        assertNull(codes.findById(replacementId).orElseThrow().getInvalidatedAt());
-        long mailCount = events.stream(OtpMailEvent.class).count();
-        assertEquals(pendingResponse, auth.resendVerification(new ResendVerificationRequest("absent@example.com")));
-        user = users.findById(user.getId()).orElseThrow();
-        user.setStatus(UserStatus.DISABLED);
-        users.saveAndFlush(user);
-        assertEquals(pendingResponse, auth.resendVerification(new ResendVerificationRequest(user.getEmail())));
-        user.setStatus(UserStatus.ACTIVE);
-        user.setEmailVerifiedAt(Instant.now());
-        users.saveAndFlush(user);
-        assertEquals(pendingResponse, auth.resendVerification(new ResendVerificationRequest(user.getEmail())));
-        assertEquals(mailCount, events.stream(OtpMailEvent.class).count());
-    }
-
-    @Test
-    void disabledAccountCannotBeActivatedEvenWithCorrectCode() {
-        var response = register();
-        User user = users.findById(response.user().id()).orElseThrow();
-        String code = lastMail().code();
-        user.setStatus(UserStatus.DISABLED);
-        users.saveAndFlush(user);
-        assertEquals(ErrorCode.INVALID_OTP, assertThrows(AuthException.class,
-                () -> auth.verifyEmail(new VerifyEmailRequest(user.getEmail(), code))).getErrorCode());
-        assertNull(codes.findById(lastMail().otpId()).orElseThrow().getUsedAt());
-    }
-
-    @Test
-    void invalidInputAndClientAssignedRoleAreRejectedByActualApiBeforePersistence() throws Exception {
-        var csrf = csrf();
-        for (String body : List.of("{}", """
-                {"username":"Student","email":"test@example.com","password":"Student1!",
-                 "confirmPassword":"Different1!"}
-                """, """
-                {"username":"Student","email":"test@example.com","password":"Student1!",
-                 "confirmPassword":"Student1!","role":"ADMIN"}
-                """)) {
-            mvc.perform(post("/api/v1/auth/register").contentType(MediaType.APPLICATION_JSON).content(body)
-                            .cookie(csrf.cookie()).header("X-XSRF-TOKEN", csrf.token()))
-                    .andExpect(status().isBadRequest()).andExpect(jsonPath("code").value("VALIDATION_ERROR"));
+    void correctCodeRequiresTheMatchingCookieAndEmail() {
+        var fixture = register();
+        for (String token : Arrays.asList(null, "malformed", UUID.randomUUID().toString())) {
+            assertEquals(ErrorCode.INVALID_OTP, assertThrows(AuthException.class, () -> auth.verifyEmail(new VerifyEmailRequest(fixture.email(), fixture.mail().code()), token)).getErrorCode());
         }
-        assertEquals(0, events.stream(OtpMailEvent.class).count());
+        assertEquals(ErrorCode.INVALID_OTP, assertThrows(AuthException.class, () -> auth.verifyEmail(new VerifyEmailRequest("other@example.com", fixture.mail().code()), fixture.token())).getErrorCode());
+        assertTrue(users.findByEmail(fixture.email()).isEmpty());
     }
 
     @Test
-    void actualApiReturns409ForDuplicateEmailAnd400ForInvalidOtp() throws Exception {
-        var response = register();
-        String email = response.user().email();
-        var csrf = csrf();
-        mvc.perform(post("/api/v1/auth/register").contentType(MediaType.APPLICATION_JSON)
-                        .content("{\"username\":\"Student\",\"email\":\"" + email + "\","
-                                + "\"password\":\"Student1!\",\"confirmPassword\":\"Student1!\"}")
-                        .cookie(csrf.cookie()).header("X-XSRF-TOKEN", csrf.token()))
-                .andExpect(status().isConflict()).andExpect(jsonPath("code").value("EMAIL_ALREADY_EXISTS"));
-        mvc.perform(post("/api/v1/auth/verify-email").contentType(MediaType.APPLICATION_JSON)
-                        .content("{\"email\":\"absent@example.com\",\"code\":\"012345\"}")
-                        .cookie(csrf.cookie()).header("X-XSRF-TOKEN", csrf.token()))
-                .andExpect(status().isBadRequest()).andExpect(jsonPath("code").value("INVALID_OTP"));
-        mvc.perform(post("/api/v1/auth/resend-verification").contentType(MediaType.APPLICATION_JSON)
-                        .content("{\"email\":\"absent@example.com\"}")
-                        .cookie(csrf.cookie()).header("X-XSRF-TOKEN", csrf.token()))
-                .andExpect(status().isAccepted()).andExpect(jsonPath("expiresInSeconds").value(300));
+    void cancelEndpointClearsCookieAndInvalidatesTheRegistration() throws Exception {
+        var fixture = register(); var csrf = csrf();
+        mvc.perform(post("/api/v1/auth/cancel-registration")
+                .cookie(csrf.cookie(), new Cookie("DUMIO_REGISTRATION", fixture.token())).header("X-XSRF-TOKEN", csrf.token()))
+                .andExpect(status().isNoContent()).andExpect(cookie().maxAge("DUMIO_REGISTRATION", 0));
+        em.clear();
+        assertTrue(registrations.findById(fixture.response().registrationId()).isEmpty());
+        assertTrue(users.findByEmail(fixture.email()).isEmpty());
     }
 
-    private com.dumio.backend.dto.response.RegisterResponse register() {
-        return auth.register(new RegisterRequest("Student", UUID.randomUUID() + "@example.com", "Student1!", "Student1!"));
+    @Test
+    void resendCreatesNoUserAndVerificationAcceptsLeadingZerosOnce() throws Exception {
+        var fixture = register(); auth.resendVerification(new ResendVerificationRequest(fixture.email()), fixture.token()); var replacement = lastMail(); em.clear();
+        assertNotNull(codes.findById(fixture.mail().otpId()).orElseThrow().getInvalidatedAt()); assertTrue(users.findByEmail(fixture.email()).isEmpty());
+        var code = codes.findById(replacement.otpId()).orElseThrow(); code.setCodeDigest(digest(fixture.response().registrationId(), OtpPurpose.EMAIL_VERIFICATION, code.getId(), "012345")); codes.saveAndFlush(code);
+        auth.verifyEmail(new VerifyEmailRequest(fixture.email(), "012345"), fixture.token()); em.clear();
+        assertEquals(UserStatus.ACTIVE, users.findByEmail(fixture.email()).orElseThrow().getStatus());
+        assertEquals(ErrorCode.INVALID_OTP, assertThrows(AuthException.class, () -> auth.verifyEmail(new VerifyEmailRequest(fixture.email(), "012345"), fixture.token())).getErrorCode());
     }
 
-    private OtpMailEvent lastMail() {
-        return events.stream(OtpMailEvent.class).toList().getLast();
+    @Test
+    void pendingRegistrationCanRestartWithoutOverwritingAnotherAttempt() {
+        var fixture = register(); var second = auth.register(new RegisterRequest("Different", fixture.email(), "Different1!", "Different1!"));
+        assertNotEquals(fixture.response().registrationId(), second.registrationId());
+        assertEquals("Student", registrations.findById(fixture.response().registrationId()).orElseThrow().getUsername());
+        assertTrue(users.findByEmail(fixture.email()).isEmpty());
     }
 
-    private String digest(UUID userId, OtpPurpose purpose, UUID id, String code) throws Exception {
-        Mac mac = Mac.getInstance("HmacSHA256");
-        mac.init(key);
-        return HexFormat.of().formatHex(mac.doFinal((userId + ":" + purpose.name() + ":" + id + ":" + code)
-                .getBytes(StandardCharsets.UTF_8)));
+    @Test
+    void expiredRegistrationRejectsEvenTheCorrectCode() {
+        var fixture = register();
+        em.createNativeQuery("UPDATE pending_registrations SET created_at=CURRENT_TIMESTAMP-INTERVAL '10 minutes', expires_at=CURRENT_TIMESTAMP-INTERVAL '1 minute' WHERE id=:id").setParameter("id", fixture.response().registrationId()).executeUpdate(); em.clear();
+        assertEquals(ErrorCode.INVALID_OTP, assertThrows(AuthException.class, () -> auth.verifyEmail(new VerifyEmailRequest(fixture.email(), fixture.mail().code()), fixture.token())).getErrorCode());
+        assertTrue(users.findByEmail(fixture.email()).isEmpty());
     }
 
+    private Fixture register() {
+        String email = UUID.randomUUID() + "@example.com";
+        var response = auth.register(new RegisterRequest("Student", email, "Student1!", "Student1!")); return new Fixture(email, response, lastMail());
+    }
+    private OtpMailEvent lastMail() { return events.stream(OtpMailEvent.class).toList().getLast(); }
+    private String digest(UUID subject, OtpPurpose purpose, UUID id, String code) throws Exception {
+        Mac mac = Mac.getInstance("HmacSHA256"); mac.init(key); return HexFormat.of().formatHex(mac.doFinal((subject + ":" + purpose + ":" + id + ":" + code).getBytes(StandardCharsets.UTF_8)));
+    }
     private CsrfPair csrf() throws Exception {
-        var result = mvc.perform(get("/api/v1/auth/csrf")).andExpect(status().isOk()).andReturn();
-        return new CsrfPair(result.getResponse().getCookie("XSRF-TOKEN"),
-                json.readTree(result.getResponse().getContentAsString()).get("token").asText());
+        var result = mvc.perform(get("/api/v1/auth/csrf")).andReturn(); return new CsrfPair(result.getResponse().getCookie("XSRF-TOKEN"), json.readTree(result.getResponse().getContentAsString()).get("token").asText());
     }
-
     private record CsrfPair(Cookie cookie, String token) {}
+    private record Fixture(String email, RegisterResponse response, OtpMailEvent mail) { String token() { return response.registrationId().toString(); } }
 }

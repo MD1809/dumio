@@ -16,9 +16,11 @@ public interface AuthService {
 
     RegisterResponse register(RegisterRequest request);
 
-    MessageResponse verifyEmail(VerifyEmailRequest request);
+    MessageResponse verifyEmail(VerifyEmailRequest request, String registrationToken);
 
-    OtpRequestResponse resendVerification(ResendVerificationRequest request);
+    OtpRequestResponse resendVerification(ResendVerificationRequest request, String registrationToken);
+
+    void cancelRegistration(String registrationToken);
 
     TokenService.TokenPair login(LoginRequest request);
 

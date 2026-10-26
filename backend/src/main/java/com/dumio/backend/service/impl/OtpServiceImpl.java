@@ -3,6 +3,7 @@ package com.dumio.backend.service.impl;
 import com.dumio.backend.config.OtpConfig;
 import com.dumio.backend.entity.EmailOtpCode;
 import com.dumio.backend.entity.User;
+import com.dumio.backend.entity.PendingRegistration;
 import com.dumio.backend.enums.ErrorCode;
 import com.dumio.backend.enums.OtpPurpose;
 import com.dumio.backend.event.OtpMailEvent;
@@ -55,6 +56,39 @@ public class OtpServiceImpl implements OtpService {
         otp.setCodeDigest(digest(user.getId(), purpose, otp.getId(), value));
         codes.saveAndFlush(otp);
         events.publishEvent(new OtpMailEvent(otp.getId(), user.getEmail(), value, purpose, otp.getExpiresAt()));
+    }
+
+    @Override
+    @Transactional
+    public void issue(PendingRegistration registration) {
+        Instant now = Instant.now();
+        codes.invalidateRegistrationCodes(registration.getId(), now);
+        String value = String.format(Locale.ROOT, "%06d", random.nextInt(1_000_000));
+        EmailOtpCode otp = new EmailOtpCode();
+        otp.setId(UUID.randomUUID());
+        otp.setRegistration(registration);
+        otp.setPurpose(OtpPurpose.EMAIL_VERIFICATION);
+        otp.setCreatedAt(now);
+        otp.setExpiresAt(now.plusSeconds(OtpConfig.OTP_TTL_SECONDS));
+        otp.setCodeDigest(digest(registration.getId(), otp.getPurpose(), otp.getId(), value));
+        otp = codes.saveAndFlush(otp);
+        registration.getCodes().add(otp);
+        events.publishEvent(new OtpMailEvent(otp.getId(), registration.getEmail(), value, otp.getPurpose(), otp.getExpiresAt()));
+    }
+
+    @Override
+    @Transactional
+    public void consume(PendingRegistration registration, String code) {
+        if (code == null || !code.matches("[0-9]{6}")) throw new AuthException(ErrorCode.INVALID_OTP);
+        EmailOtpCode otp = codes.findByRegistrationIdAndUsedAtIsNullAndInvalidatedAtIsNull(registration.getId())
+                .orElseThrow(() -> new AuthException(ErrorCode.INVALID_OTP));
+        Instant now = Instant.now();
+        String expected = digest(registration.getId(), OtpPurpose.EMAIL_VERIFICATION, otp.getId(), code);
+        if (!otp.getExpiresAt().isAfter(now) || !MessageDigest.isEqual(
+                otp.getCodeDigest().getBytes(StandardCharsets.US_ASCII), expected.getBytes(StandardCharsets.US_ASCII))
+                || codes.consumeRegistrationCode(otp.getId(), registration.getId(), now) != 1) {
+            throw new AuthException(ErrorCode.INVALID_OTP);
+        }
     }
 
     @Override

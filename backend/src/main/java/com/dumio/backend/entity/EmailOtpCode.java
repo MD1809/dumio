@@ -25,9 +25,13 @@ public class EmailOtpCode {
     @Id
     private UUID id;
 
-    @ManyToOne(fetch = FetchType.LAZY, optional = false)
-    @JoinColumn(name = "user_id", nullable = false)
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "user_id")
     private User user;
+
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "registration_id")
+    private PendingRegistration registration;
 
     @Enumerated(EnumType.STRING)
     @Column(nullable = false, length = 30)

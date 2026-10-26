@@ -13,6 +13,16 @@ import org.springframework.transaction.annotation.Transactional;
 
 public interface EmailOtpCodeRepository extends JpaRepository<EmailOtpCode, UUID> {
 
+    Optional<EmailOtpCode> findByRegistrationIdAndUsedAtIsNullAndInvalidatedAtIsNull(UUID registrationId);
+
+    @Modifying(flushAutomatically = true)
+    @Query("update EmailOtpCode c set c.invalidatedAt = :now where c.registration.id = :id and c.usedAt is null and c.invalidatedAt is null")
+    int invalidateRegistrationCodes(@Param("id") UUID id, @Param("now") Instant now);
+
+    @Modifying(flushAutomatically = true)
+    @Query("update EmailOtpCode c set c.usedAt = :now where c.id = :id and c.registration.id = :registrationId and c.usedAt is null and c.invalidatedAt is null and c.expiresAt > :now")
+    int consumeRegistrationCode(@Param("id") UUID id, @Param("registrationId") UUID registrationId, @Param("now") Instant now);
+
     Optional<EmailOtpCode> findByUserIdAndPurposeAndUsedAtIsNullAndInvalidatedAtIsNull(
             UUID userId, OtpPurpose purpose);
 

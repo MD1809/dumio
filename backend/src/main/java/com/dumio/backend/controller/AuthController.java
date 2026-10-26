@@ -40,6 +40,7 @@ import org.springframework.web.bind.annotation.RestController;
 public class AuthController {
 
     private static final String REFRESH_COOKIE = "DUMIO_REFRESH";
+    private static final String REGISTRATION_COOKIE = "DUMIO_REGISTRATION";
     private static final String COOKIE_PATH = "/api/v1/auth";
 
     private final AuthService authService;
@@ -51,18 +52,45 @@ public class AuthController {
     }
 
     @PostMapping("/register")
-    public ResponseEntity<RegisterResponse> register(@Valid @RequestBody RegisterRequest request) {
-        return ResponseEntity.status(HttpStatus.CREATED).body(authService.register(request));
+    public ResponseEntity<RegisterResponse> register(@Valid @RequestBody RegisterRequest body,
+            @CookieValue(name = REGISTRATION_COOKIE, required = false) String previousRegistration,
+            HttpServletRequest request, HttpServletResponse response) {
+        if (previousRegistration != null) authService.cancelRegistration(previousRegistration);
+        RegisterResponse result = authService.register(body);
+        setRegistrationCookie(result.registrationId().toString(), false, request, response);
+        return ResponseEntity.accepted().cacheControl(CacheControl.noStore()).body(result);
     }
 
     @PostMapping("/verify-email")
-    public MessageResponse verifyEmail(@Valid @RequestBody VerifyEmailRequest request) {
-        return authService.verifyEmail(request);
+    public MessageResponse verifyEmail(@Valid @RequestBody VerifyEmailRequest body,
+            @CookieValue(name = REGISTRATION_COOKIE, required = false) String registration,
+            HttpServletRequest request, HttpServletResponse response) {
+        MessageResponse result = authService.verifyEmail(body, registration);
+        setRegistrationCookie("", true, request, response);
+        return result;
     }
 
     @PostMapping("/resend-verification")
-    public ResponseEntity<OtpRequestResponse> resendVerification(@Valid @RequestBody ResendVerificationRequest request) {
-        return ResponseEntity.accepted().body(authService.resendVerification(request));
+    public ResponseEntity<OtpRequestResponse> resendVerification(@Valid @RequestBody ResendVerificationRequest request,
+            @CookieValue(name = REGISTRATION_COOKIE, required = false) String registration) {
+        return ResponseEntity.accepted().body(authService.resendVerification(request, registration));
+    }
+
+    @PostMapping("/cancel-registration")
+    public ResponseEntity<Void> cancelRegistration(
+            @CookieValue(name = REGISTRATION_COOKIE, required = false) String registration,
+            HttpServletRequest request, HttpServletResponse response) {
+        authService.cancelRegistration(registration);
+        setRegistrationCookie("", true, request, response);
+        return ResponseEntity.noContent().cacheControl(CacheControl.noStore()).build();
+    }
+
+    private void setRegistrationCookie(String value, boolean clear,
+            HttpServletRequest request, HttpServletResponse response) {
+        ResponseCookie.ResponseCookieBuilder cookie = ResponseCookie.from(REGISTRATION_COOKIE, value)
+                .httpOnly(true).secure(request.isSecure()).sameSite("Lax").path(COOKIE_PATH);
+        if (clear) cookie.maxAge(0);
+        response.addHeader(HttpHeaders.SET_COOKIE, cookie.build().toString());
     }
 
     @GetMapping("/csrf")

@@ -78,7 +78,7 @@ class AuthSecurityTests {
 
     @ParameterizedTest
     @ValueSource(strings = {"register", "verify-email", "resend-verification", "login",
-            "refresh", "logout", "forgot-password", "reset-password"})
+            "refresh", "logout", "forgot-password", "reset-password", "cancel-registration"})
     void everyCookiePostRequiresCsrfEvenWhenBearerIsPresent(String endpoint) throws Exception {
         String bearer = token(account(UserRole.USER), Map.of());
         mvc.perform(post("/api/v1/auth/" + endpoint).header(HttpHeaders.AUTHORIZATION, "Bearer " + bearer))
@@ -87,7 +87,7 @@ class AuthSecurityTests {
 
     @ParameterizedTest
     @ValueSource(strings = {"register", "verify-email", "resend-verification", "login",
-            "refresh", "logout", "forgot-password", "reset-password"})
+            "refresh", "logout", "forgot-password", "reset-password", "cancel-registration"})
     void everyCookiePostAcceptsRealCookieAndMaskedHeader(String endpoint) throws Exception {
         var csrf = csrf();
         var pair = new com.dumio.backend.service.TokenService.TokenPair(
@@ -96,6 +96,8 @@ class AuthSecurityTests {
                                 "fixture@example.com", UserRole.USER)), "fixture-refresh");
         org.mockito.Mockito.when(authService.login(org.mockito.ArgumentMatchers.any())).thenReturn(pair);
         org.mockito.Mockito.when(authService.refresh(org.mockito.ArgumentMatchers.any())).thenReturn(pair);
+        org.mockito.Mockito.when(authService.register(org.mockito.ArgumentMatchers.any())).thenReturn(
+                new com.dumio.backend.dto.response.RegisterResponse(UUID.randomUUID(), true, 300));
         String body = switch (endpoint) {
             case "register" -> """
                     {"username":"Student","email":"test@example.com","password":"Student1!","confirmPassword":"Student1!"}
@@ -115,9 +117,9 @@ class AuthSecurityTests {
             default -> "{}";
         };
         int expected = switch (endpoint) {
-            case "register" -> 201;
+            case "register" -> 202;
             case "resend-verification", "forgot-password" -> 202;
-            case "logout" -> 204;
+            case "logout", "cancel-registration" -> 204;
             default -> 200;
         };
         var result = mvc.perform(post("/api/v1/auth/" + endpoint)

@@ -87,12 +87,10 @@ class AuthContractTests {
     void requestBindingNormalizesBeforeValidationAndDoesNotLeakCredentials() throws Exception {
         mvc.perform(post("/api/v1/auth/register").contentType(MediaType.APPLICATION_JSON)
                         .content(json.writeValueAsString(validRegistration())))
-                .andExpect(status().isCreated())
-                .andExpect(jsonPath("$.user.username").value("Nguyễn An"))
-                .andExpect(jsonPath("$.user.email").value("an@example.com"))
-                .andExpect(jsonPath("$.user.role").value("USER"))
-                .andExpect(jsonPath("$.user.passwordHash").doesNotExist())
-                .andExpect(jsonPath("$.user.status").doesNotExist())
+                .andExpect(status().isAccepted())
+                .andExpect(jsonPath("$.user").doesNotExist())
+                .andExpect(jsonPath("$.registrationId").doesNotExist())
+                .andExpect(jsonPath("$.verificationRequired").value(true))
                 .andExpect(jsonPath("$.password").doesNotExist())
                 .andExpect(jsonPath("$.confirmPassword").doesNotExist());
     }
@@ -255,9 +253,9 @@ class AuthContractTests {
     static class ContractFixture {
 
         @PostMapping("/api/v1/auth/register")
-        @ResponseStatus(HttpStatus.CREATED)
+        @ResponseStatus(HttpStatus.ACCEPTED)
         RegisterResponse register(@Valid @RequestBody RegisterRequest request) {
-            return new RegisterResponse(new UserMapper().toResponse(testUser(request.username(), request.email())), true, 300);
+            return new RegisterResponse(UUID.randomUUID(), true, 300);
         }
 
         @PostMapping("/api/v1/auth/login")

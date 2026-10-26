@@ -12,6 +12,7 @@ import com.dumio.backend.dto.response.OtpRequestResponse;
 import com.dumio.backend.dto.response.RegisterResponse;
 import com.dumio.backend.dto.response.UserResponse;
 import com.dumio.backend.entity.User;
+import com.dumio.backend.entity.PendingRegistration;
 import com.dumio.backend.enums.ErrorCode;
 import com.dumio.backend.enums.OtpPurpose;
 import com.dumio.backend.enums.UserRole;
@@ -20,11 +21,13 @@ import com.dumio.backend.event.PasswordChangedEvent;
 import com.dumio.backend.exception.AuthException;
 import com.dumio.backend.mapper.UserMapper;
 import com.dumio.backend.repository.UserRepository;
+import com.dumio.backend.repository.PendingRegistrationRepository;
 import com.dumio.backend.service.AuthService;
 import com.dumio.backend.service.OtpService;
 import com.dumio.backend.service.TokenService;
 import java.time.Instant;
 import java.util.UUID;
+import java.util.Optional;
 import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.security.authentication.AccountStatusException;
 import org.springframework.security.authentication.AuthenticationManager;
@@ -44,9 +47,11 @@ public class AuthServiceImpl implements AuthService {
     private final AuthenticationManager authenticationManager;
     private final TokenService tokenService;
     private final ApplicationEventPublisher events;
+    private final PendingRegistrationRepository registrations;
 
     public AuthServiceImpl(UserRepository users, OtpService otpService, PasswordEncoder passwords, UserMapper mapper,
-            AuthenticationManager authenticationManager, TokenService tokenService, ApplicationEventPublisher events) {
+            AuthenticationManager authenticationManager, TokenService tokenService, ApplicationEventPublisher events,
+            PendingRegistrationRepository registrations) {
         this.users = users;
         this.otpService = otpService;
         this.passwords = passwords;
@@ -54,6 +59,7 @@ public class AuthServiceImpl implements AuthService {
         this.authenticationManager = authenticationManager;
         this.tokenService = tokenService;
         this.events = events;
+        this.registrations = registrations;
     }
 
     @Override
@@ -62,38 +68,71 @@ public class AuthServiceImpl implements AuthService {
         if (users.existsByEmail(request.email())) {
             throw new AuthException(ErrorCode.EMAIL_ALREADY_EXISTS);
         }
-        User user = new User();
-        user.setUsername(request.username());
-        user.setEmail(request.email());
-        user.setPasswordHash(passwords.encode(request.password()));
-        user.setRole(UserRole.USER);
-        user.setStatus(UserStatus.PENDING_VERIFICATION);
-        user = users.saveAndFlush(user);
-        otpService.issue(user, OtpPurpose.EMAIL_VERIFICATION);
-        return new RegisterResponse(mapper.toResponse(user), true, OtpConfig.OTP_TTL_SECONDS);
+        Instant now = Instant.now();
+        registrations.deleteExpired(now);
+        PendingRegistration registration = new PendingRegistration();
+        registration.setId(UUID.randomUUID());
+        registration.setUsername(request.username());
+        registration.setEmail(request.email());
+        registration.setPasswordHash(passwords.encode(request.password()));
+        registration.setCreatedAt(now);
+        registration.setExpiresAt(now.plusSeconds(OtpConfig.OTP_TTL_SECONDS));
+        registration = registrations.saveAndFlush(registration);
+        otpService.issue(registration);
+        return new RegisterResponse(registration.getId(), true, OtpConfig.OTP_TTL_SECONDS);
     }
 
     @Override
     @Transactional
-    public MessageResponse verifyEmail(VerifyEmailRequest request) {
-        User user = users.findByEmail(request.email())
-                .filter(this::isPending)
+    public MessageResponse verifyEmail(VerifyEmailRequest request, String registrationToken) {
+        PendingRegistration registration = findRegistration(registrationToken)
+                .filter(value -> value.getEmail().equals(request.email()) && value.getExpiresAt().isAfter(Instant.now()))
                 .orElseThrow(() -> new AuthException(ErrorCode.INVALID_OTP));
-        otpService.consume(user, OtpPurpose.EMAIL_VERIFICATION, request.code());
-        if (users.activatePendingUser(user.getId(), Instant.now()) != 1) {
-            // Roll back OTP consumption as well if the account no longer qualifies.
-            throw new AuthException(ErrorCode.INVALID_OTP);
-        }
+        if (users.existsByEmail(request.email())) throw new AuthException(ErrorCode.EMAIL_ALREADY_EXISTS);
+        otpService.consume(registration, request.code());
+        User user = new User();
+        user.setUsername(registration.getUsername());
+        user.setEmail(registration.getEmail());
+        user.setPasswordHash(registration.getPasswordHash());
+        user.setRole(UserRole.USER);
+        user.setStatus(UserStatus.ACTIVE);
+        user.setEmailVerifiedAt(Instant.now());
+        users.saveAndFlush(user);
+        registrations.delete(registration);
+        registrations.flush();
         return new MessageResponse("Thao tác thành công");
     }
 
     @Override
     @Transactional
-    public OtpRequestResponse resendVerification(ResendVerificationRequest request) {
-        users.findByEmail(request.email()).filter(this::isPending)
-                .ifPresent(user -> otpService.issue(user, OtpPurpose.EMAIL_VERIFICATION));
+    public OtpRequestResponse resendVerification(ResendVerificationRequest request, String registrationToken) {
+        findRegistration(registrationToken)
+                .filter(value -> value.getEmail().equals(request.email()) && value.getExpiresAt().isAfter(Instant.now()))
+                .filter(value -> !users.existsByEmail(value.getEmail()))
+                .ifPresent(value -> {
+                    value.setExpiresAt(Instant.now().plusSeconds(OtpConfig.OTP_TTL_SECONDS));
+                    registrations.saveAndFlush(value);
+                    otpService.issue(value);
+                });
         return new OtpRequestResponse("Hệ thống sẽ gửi mã qua email",
                 OtpConfig.OTP_TTL_SECONDS);
+    }
+
+    @Override
+    @Transactional
+    public void cancelRegistration(String registrationToken) {
+        findRegistration(registrationToken).ifPresent(value -> {
+            registrations.delete(value);
+            registrations.flush();
+        });
+    }
+
+    private Optional<PendingRegistration> findRegistration(String token) {
+        if (token == null) return Optional.empty();
+        final UUID id;
+        try { id = UUID.fromString(token); }
+        catch (IllegalArgumentException ex) { return Optional.empty(); }
+        return registrations.findForUpdate(id);
     }
 
     @Override
@@ -159,7 +198,4 @@ public class AuthServiceImpl implements AuthService {
         return user.getStatus() == UserStatus.ACTIVE && user.getEmailVerifiedAt() != null;
     }
 
-    private boolean isPending(User user) {
-        return user.getStatus() == UserStatus.PENDING_VERIFICATION && user.getEmailVerifiedAt() == null;
-    }
 }

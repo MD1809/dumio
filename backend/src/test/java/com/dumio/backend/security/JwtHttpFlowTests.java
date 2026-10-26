@@ -169,19 +169,18 @@ class JwtHttpFlowTests {
             var register = post(client, "register", csrf, json.writeValueAsString(Map.of(
                     "username", "  Nguyen   An  ", "email", " " + email.toUpperCase(java.util.Locale.ROOT) + " ",
                     "password", "Student1!", "confirmPassword", "Student1!")));
-            assertEquals(201, register.statusCode());
+            assertEquals(202, register.statusCode());
             var body = json.readTree(register.body());
-            assertEquals("Nguyen An", body.get("user").get("username").asText());
-            assertEquals(email, body.get("user").get("email").asText());
-            assertEquals("USER", body.get("user").get("role").asText());
+            assertFalse(body.has("user"));
+            assertFalse(body.has("registrationId"));
             assertTrue(body.get("verificationRequired").asBoolean());
             assertEquals(300, body.get("expiresInSeconds").asInt());
             assertFalse(body.has("accessToken"));
             assertNotNull(delivered.poll(5, TimeUnit.SECONDS));
-            var user = users.findByEmail(email).orElseThrow();
-            assertEquals(UserStatus.PENDING_VERIFICATION, user.getStatus());
-            var original = codes.findByUserIdAndPurposeAndUsedAtIsNullAndInvalidatedAtIsNull(
-                    user.getId(), OtpPurpose.EMAIL_VERIFICATION).orElseThrow();
+            assertTrue(users.findByEmail(email).isEmpty());
+            var registrationId = UUID.fromString(cookies.getCookieStore().getCookies().stream()
+                    .filter(cookie -> cookie.getName().equals("DUMIO_REGISTRATION")).findFirst().orElseThrow().getValue());
+            var original = codes.findByRegistrationIdAndUsedAtIsNullAndInvalidatedAtIsNull(registrationId).orElseThrow();
             String credentials = json.writeValueAsString(Map.of("email", email, "password", "Student1!"));
             assertEquals(401, post(client, "login", csrf, credentials).statusCode());
             var resend = post(client, "resend-verification", csrf, json.writeValueAsString(Map.of("email", email)));
@@ -194,7 +193,7 @@ class JwtHttpFlowTests {
             assertTrue(matcher.find());
             String verification = json.writeValueAsString(Map.of("email", email, "code", matcher.group()));
             assertEquals(200, post(client, "verify-email", csrf, verification).statusCode());
-            assertEquals(UserStatus.ACTIVE, users.findById(user.getId()).orElseThrow().getStatus());
+            assertEquals(UserStatus.ACTIVE, users.findByEmail(email).orElseThrow().getStatus());
             assertEquals(400, post(client, "verify-email", csrf, verification).statusCode());
             var login = post(client, "login", csrf, credentials);
             assertEquals(200, login.statusCode());
