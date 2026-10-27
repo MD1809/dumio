@@ -13,12 +13,16 @@ test('auth routes render their heading, navigation and appropriate form', async 
   })
   try {
     const { default: App } = await server.ssrLoadModule('/src/App.jsx')
+    const { default: AuthProvider } = await server.ssrLoadModule('/src/auth/AuthProvider.jsx')
+    const { createSessionStore } = await server.ssrLoadModule('/src/auth/sessionStore.js')
+    const session = createSessionStore()
+    session.clearSession()
     const routes = [
       ['/login', 'Đăng nhập tài khoản'], ['/register', 'Tạo tài khoản mới'],
       ['/verify-email', 'Xác minh email'], ['/forgot-password', 'Quên mật khẩu?'],
     ]
     for (const [path, heading] of routes) {
-      const html = renderToString(createElement(MemoryRouter, { initialEntries: [path] }, createElement(App)))
+      const html = renderToString(createElement(MemoryRouter, { initialEntries: [path] }, createElement(AuthProvider, { session }, createElement(App))))
       assert.ok(html.includes(`>${heading}</h1>`), path)
       assert.match(html, /aria-label="Điều hướng tài khoản"/)
       assert.match(html, /aria-current="page"/)

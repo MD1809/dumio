@@ -8,6 +8,8 @@ import { FcGoogle } from 'react-icons/fc'
 import { notify } from '../../utils/notifications.js'
 import AuthShowcase from './AuthShowcase.jsx'
 import EmailVerificationDialog from './EmailVerificationDialog.jsx'
+import { useAuth } from '../../auth/useAuth.js'
+import AuthSessionStatus from './AuthSessionStatus.jsx'
 
 function rememberedEmail() {
   try { return typeof window === 'undefined' ? '' : window.localStorage.getItem('dumio.rememberedEmail') || '' }
@@ -30,6 +32,7 @@ function Field({ name, label, icon: Icon, error, hint, password, ...props }) {
 }
 
 export default function AuthForm({ mode }) {
+  const auth = useAuth()
   const register = mode === 'register'
   const [values, setValues] = useState(() => ({ username: '', email: register ? '' : rememberedEmail(), password: '', confirmPassword: '' }))
   const [remember, setRemember] = useState(() => !register && !!rememberedEmail())
@@ -50,12 +53,12 @@ export default function AuthForm({ mode }) {
     setErrors(current => ({ ...current, [name]: null }))
     setVerification(null)
   }
-  const fieldProps = name => ({ name, value: values[name], onChange: update, error: errors[name], required: true, disabled: busy })
+  const fieldProps = name => ({ name, value: values[name], onChange: update, error: errors[name], required: true, disabled: busy || auth.status === 'initializing' || auth.status === 'error' })
   const focusErrors = () => { pendingFocus.current = true }
 
   async function submit(event) {
     event.preventDefault()
-    if (busy) return
+    if (busy || auth.status === 'initializing' || auth.status === 'error') return
     const input = normalizeAuthInput(values)
     const invalid = validateAuthInput(mode, input)
     if (register && !consent) invalid.consent = 'Vui lòng đồng ý với điều khoản và chính sách bảo mật.'
@@ -72,7 +75,7 @@ export default function AuthForm({ mode }) {
           notify.success('Tạo tài khoản thành công. Bạn có thể đăng nhập ngay.')
         }
       } else {
-        await authApi.login({ email: input.email, password: input.password })
+        await auth.login({ email: input.email, password: input.password })
         try {
           if (remember) window.localStorage.setItem('dumio.rememberedEmail', input.email)
           else window.localStorage.removeItem('dumio.rememberedEmail')
@@ -100,6 +103,7 @@ export default function AuthForm({ mode }) {
           <h1 className="mb-2.5 text-[26px] leading-[1.27] font-bold tracking-[-.6px] sm:text-[30px]" id="auth-title">{register ? 'Tạo tài khoản mới' : 'Đăng nhập tài khoản'}</h1>
           <p className="text-muted">{register ? 'Bắt đầu hành trình nâng cao phản xạ tiếng Anh chỉ trong 1 phút.' : 'Chào mừng bạn quay trở lại! Vui lòng nhập thông tin để tiếp tục chuỗi bài học hôm nay.'}</p>
         </div>
+        <AuthSessionStatus />
         <button className="flex min-h-11 w-full items-center justify-center gap-2.5 rounded-lg border border-border/25 bg-surface text-xs/normal font-semibold text-text shadow-google disabled:text-muted" type="button" disabled aria-describedby="google-unavailable"><FcGoogle size={20} aria-hidden="true" />{register ? 'Đăng ký nhanh với Google' : 'Tiếp tục với Google'}</button>
         <div className="my-[26px] flex items-center gap-3 text-center text-[11px] font-semibold tracking-[.5px] text-muted uppercase before:h-px before:flex-1 before:bg-surface-muted before:content-[''] after:h-px after:flex-1 after:bg-surface-muted after:content-['']"><span className="max-w-4/5">Hoặc {register ? 'đăng ký' : 'đăng nhập'} bằng email</span></div>
         <form className={`flex flex-col ${register ? 'gap-4' : 'gap-5'}`} ref={form} noValidate onSubmit={submit} aria-busy={busy}>
@@ -111,7 +115,7 @@ export default function AuthForm({ mode }) {
             <div><label className="flex cursor-pointer items-start gap-2.5 text-xs/normal text-muted" htmlFor="auth-consent"><input className="mt-[3px] size-4 shrink-0 cursor-pointer appearance-auto accent-primary" id="auth-consent" name="consent" type="checkbox" checked={consent} disabled={busy} onChange={event => { setConsent(event.target.checked); setErrors(current => ({ ...current, consent: null })) }} required aria-invalid={!!errors.consent} aria-describedby={errors.consent ? 'error-consent' : undefined} /><span>Tôi đồng ý với <strong className="font-semibold text-brand">Điều khoản dịch vụ</strong> và <strong className="font-semibold text-brand">Chính sách bảo mật</strong> của dumio.</span></label>{errors.consent && <p className="mt-1.5 text-xs/normal text-error" id="error-consent">{errors.consent}</p>}</div>
           </>}
           {!register && <div className="flex items-center justify-between gap-3 text-xs/normal"><label className="flex min-h-8 cursor-pointer items-center gap-2 text-muted"><input className="size-4 shrink-0 cursor-pointer appearance-auto accent-primary" type="checkbox" checked={remember} onChange={event => setRemember(event.target.checked)} disabled={busy} />Ghi nhớ email</label><Link className="py-2 font-semibold text-primary" to={PATHS.FORGOT_PASSWORD}>Quên mật khẩu?</Link></div>}
-          <button className="flex min-h-11 w-full items-center justify-center gap-2.5 rounded-lg border-0 bg-primary font-bold text-on-primary shadow-button transition-colors duration-150 hover:bg-primary-hover disabled:opacity-65" type="submit" disabled={busy}>{busy ? <><span className="size-4 animate-spin rounded-full border-2 border-on-primary/40 border-t-on-primary [animation-duration:.8s]" />Đang xử lý...</> : <>{register ? 'Tạo tài khoản học tập' : 'Đăng nhập ngay'}<LuArrowRight size={20} aria-hidden="true" /></>}</button>
+          <button className="flex min-h-11 w-full items-center justify-center gap-2.5 rounded-lg border-0 bg-primary font-bold text-on-primary shadow-button transition-colors duration-150 hover:bg-primary-hover disabled:opacity-65" type="submit" disabled={busy || auth.status === 'initializing' || auth.status === 'error'}>{busy ? <><span className="size-4 animate-spin rounded-full border-2 border-on-primary/40 border-t-on-primary [animation-duration:.8s]" />Đang xử lý...</> : <>{register ? 'Tạo tài khoản học tập' : 'Đăng nhập ngay'}<LuArrowRight size={20} aria-hidden="true" /></>}</button>
         </form>
         <p className="mt-8 text-center text-[13px] text-muted sm:text-sm/normal">{register ? 'Đã có tài khoản dumio?' : 'Bạn chưa có tài khoản?'} <Link className="inline-block py-2 pl-1 font-bold text-primary" to={register ? PATHS.LOGIN : PATHS.REGISTER}>{register ? 'Đăng nhập ngay' : 'Đăng ký ngay'}</Link></p>
       </div>
