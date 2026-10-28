@@ -7,7 +7,7 @@ import { createServer } from 'vite'
 
 test('auth routes render their heading, navigation and appropriate form', async () => {
   const server = await createServer({
-    server: { middlewareMode: true, hmr: false },
+    server: { middlewareMode: true, hmr: false, ws: false },
     appType: 'custom',
     logLevel: 'error',
   })

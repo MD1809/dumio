@@ -5,6 +5,7 @@ import { LuArrowLeft, LuArrowRight, LuCircleCheck, LuEye, LuEyeOff, LuKeyRound, 
 import { authApi } from '../../api/authApi.js'
 import { PATHS } from '../../route/paths.js'
 import { getFieldErrors, normalizeEmail, validateAuthInput, validateEmail } from '../../utils/authValidation.js'
+import { useAuth } from '../../auth/useAuth.js'
 
 const steps = [
   ['Nhập email đăng ký', 'Nhận mã xác nhận qua email liên kết với dumio.'],
@@ -31,6 +32,7 @@ function RecoveryField({ name, label, error, hint, password, ...props }) {
 }
 
 export default function ForgotPasswordPage() {
+  const auth = useAuth()
   const [params] = useSearchParams()
   const [stage, setStage] = useState('email')
   const [email, setEmail] = useState(() => params.get('email') || '')
@@ -61,7 +63,8 @@ export default function ForgotPasswordPage() {
     const target = pendingFocus.current === 'invalid'
       ? formRef.current?.querySelector('[aria-invalid="true"]')
       : document.getElementById(`recovery-${pendingFocus.current}`)
-    target?.focus()
+    if (!target || target.disabled) return
+    target.focus()
     pendingFocus.current = null
   })
   const focus = name => { pendingFocus.current = name }
@@ -111,7 +114,7 @@ export default function ForgotPasswordPage() {
     if (Object.keys(invalid).length) { focusErrors(); return }
     setBusy('reset')
     try {
-      await authApi.resetPassword(input)
+      await auth.resetPassword(input)
       setFields(emptyFields)
       setNotice('')
       setErrors({})

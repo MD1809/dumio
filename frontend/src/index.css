@@ -5,10 +5,15 @@
 
   /* Cherry Blossom: brand and interactive states */
   --color-primary: #a4133c;
+  --color-primary-strong: #7d0029;
+  --color-primary-soft: #ffd9dc;
   --color-primary-hover: #800f2f;
   --color-on-primary: #ffffff;
   --color-accent: #ff4d6d;
   --color-brand: #590d22;
+  --color-brand-deep: #430919;
+  --color-chart-bar-hover: #ffb3c1;
+  --color-chart-highlight-hover: #b51e48;
   --color-focus: var(--color-primary);
 
   /* Shared backgrounds, content and borders */
@@ -34,6 +39,7 @@
   /* Shadows tinted with Midnight Cherry */
   --shadow-panel: 0 16px 28px -12px #590d2240, 0 5px 10px -5px #590d221a;
   --shadow-header: 0 1px 8px #590d220a;
+  --shadow-header-scrolled: 0 5px 16px -4px #590d2229;
   --shadow-footer: 0 -1px 6px #590d2208;
   --shadow-stat: 0 1px 3px #590d220a;
   --shadow-study: 0 3px 5px #590d221c;

@@ -19,6 +19,7 @@ function fixture(overrides = {}) {
     getCsrf: async () => { calls.csrf++; return { token: 'csrf' } },
     refresh: async () => { calls.refresh++; return tokenResponse() },
     login: async () => { calls.login++; return tokenResponse('login-access') },
+    resetPassword: async () => ({ message: 'ok' }),
     ...overrides,
   }
   return { api, calls }
@@ -259,4 +260,82 @@ test('invalidating initialization never publishes the late user, even briefly', 
   await initialization
   assert.ok(seenUsers.every(user => user === null))
   assert.equal(store.getSnapshot().status, 'unauthenticated')
+})
+
+test('reset waits for the in-flight refresh cookie before clearing the local session', async () => {
+  const pending = deferred()
+  let resets = 0
+  const { api } = fixture({ refresh: () => pending.promise, resetPassword: async () => { resets++; return { message: 'ok' } } })
+  const store = createSessionStore({ api })
+  const initialization = store.initialize()
+  await tick()
+  const reset = store.resetPassword({ code: '012345' })
+  await tick()
+  assert.equal(resets, 0)
+  await assert.rejects(store.ensureSession(), { code: 'SESSION_CHANGED' })
+  pending.resolve(tokenResponse('old-token'))
+  await initialization
+  await reset
+  assert.equal(resets, 1)
+  assert.equal(store.getSnapshot().status, 'unauthenticated')
+  assert.equal(store.getSnapshot().accessToken, null)
+})
+
+test('failed reset preserves an existing valid session, but uncertain reset results block it', async () => {
+  const { api } = fixture({ resetPassword: async () => { throw failure(400, 'INVALID_OTP') } })
+  const store = createSessionStore({ api })
+  await store.initialize()
+  await assert.rejects(store.resetPassword({}), { code: 'INVALID_OTP' })
+  assert.equal(store.getSnapshot().status, 'authenticated')
+  api.resetPassword = async () => { throw failure(0, 'NETWORK_ERROR') }
+  await assert.rejects(store.resetPassword({}), { code: 'NETWORK_ERROR' })
+  assert.equal(store.getSnapshot().status, 'error')
+  assert.equal(store.getSnapshot().canRetry, false)
+  assert.equal(store.getSnapshot().user, null)
+})
+
+test('reset started before provider initialization does not trigger a competing refresh', async () => {
+  const { api, calls } = fixture()
+  const store = createSessionStore({ api })
+  const reset = store.resetPassword({})
+  await store.initialize()
+  await reset
+  assert.equal(calls.refresh, 0)
+  assert.equal(store.getSnapshot().status, 'unauthenticated')
+})
+
+test('logout waits for rotating cookies, deduplicates clicks and blocks competing auth', async () => {
+  const pending = deferred()
+  let logouts = 0
+  const { api } = fixture({ refresh: () => pending.promise, logout: async () => { logouts++ } })
+  const store = createSessionStore({ api })
+  const initialization = store.initialize()
+  await tick()
+  const logout = store.logout()
+  assert.equal(logout, store.logout())
+  await tick()
+  assert.equal(logouts, 0)
+  await assert.rejects(store.ensureSession(), { code: 'SESSION_CHANGED' })
+  await assert.rejects(store.login({}), { code: 'SESSION_CHANGED' })
+  await assert.rejects(store.resetPassword({}), { code: 'SESSION_CHANGED' })
+  pending.resolve(tokenResponse('old-token'))
+  await initialization
+  await logout
+  assert.equal(logouts, 1)
+  assert.equal(store.getSnapshot().status, 'unauthenticated')
+  assert.equal(store.getSnapshot().user, null)
+  assert.equal(store.getSnapshot().accessToken, null)
+})
+
+test('logout failure restores a valid session only when the result is known', async () => {
+  const { api } = fixture({ logout: async () => { throw failure(503) } })
+  const store = createSessionStore({ api })
+  await store.initialize()
+  await assert.rejects(store.logout(), { status: 503 })
+  assert.equal(store.getSnapshot().status, 'authenticated')
+  api.logout = async () => { throw failure(0, 'NETWORK_ERROR') }
+  await assert.rejects(store.logout(), { code: 'NETWORK_ERROR' })
+  assert.equal(store.getSnapshot().status, 'error')
+  assert.equal(store.getSnapshot().canRetry, false)
+  assert.equal(store.getSnapshot().accessToken, null)
 })

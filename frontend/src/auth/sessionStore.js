@@ -35,6 +35,8 @@ export function createSessionStore({ api = authApi, now = Date.now } = {}) {
   let refreshPromise = null
   let loginPromise = null
   let reauthenticationPromise = null
+  let resetPromise = null
+  let logoutPromise = null
   let generation = 0
 
   function publish(next) {
@@ -82,6 +84,8 @@ export function createSessionStore({ api = authApi, now = Date.now } = {}) {
   }
 
   function ensureSession() {
+    if (logoutPromise) return Promise.reject(changedSession())
+    if (resetPromise) return Promise.reject(changedSession())
     if (reauthenticationPromise) return reauthenticationPromise.then(() => null)
     if (loginPromise) return loginPromise
     if (refreshPromise) return refreshPromise
@@ -93,6 +97,8 @@ export function createSessionStore({ api = authApi, now = Date.now } = {}) {
   }
 
   function retryInitialization() {
+    if (logoutPromise) return Promise.reject(changedSession())
+    if (resetPromise) return Promise.reject(changedSession())
     if (reauthenticationPromise) return Promise.reject(changedSession())
     if (refreshPromise) return refreshPromise
     if (loginPromise || snapshot.status !== 'error' || !snapshot.canRetry) {
@@ -103,6 +109,8 @@ export function createSessionStore({ api = authApi, now = Date.now } = {}) {
 
   // For future protected reads: a late 401 must not rotate a newer token again.
   function recoverSession(rejectedAccessToken, expectedGeneration) {
+    if (logoutPromise) return Promise.reject(changedSession())
+    if (resetPromise) return Promise.reject(changedSession())
     if (expectedGeneration !== generation) return Promise.reject(changedSession())
     if (reauthenticationPromise) return Promise.reject(changedSession())
     if (loginPromise) return Promise.reject(changedSession())
@@ -116,7 +124,7 @@ export function createSessionStore({ api = authApi, now = Date.now } = {}) {
     if (reauthenticationPromise) return reauthenticationPromise
     // Await the cookie response even when its auth-state result has been discarded.
     const version = ++generation
-    reauthenticationPromise = Promise.allSettled([initializationPromise, refreshPromise, loginPromise].filter(Boolean))
+    reauthenticationPromise = Promise.allSettled([initializationPromise, refreshPromise, loginPromise, resetPromise, logoutPromise].filter(Boolean))
       .then(() => {
         if (version !== generation) throw changedSession()
         initialized = true
@@ -126,6 +134,8 @@ export function createSessionStore({ api = authApi, now = Date.now } = {}) {
   }
 
   function login(credentials) {
+    if (logoutPromise) return Promise.reject(changedSession())
+    if (resetPromise) return Promise.reject(changedSession())
     if (loginPromise) return loginPromise
     const requestedGeneration = generation
     loginPromise = (async () => {
@@ -157,10 +167,72 @@ export function createSessionStore({ api = authApi, now = Date.now } = {}) {
     publish({ status: 'unauthenticated' })
   }
 
+  // Public recovery remains usable after adding guards to login/register.
+  function resetPassword(input) {
+    if (logoutPromise) return Promise.reject(changedSession())
+    if (resetPromise) return resetPromise
+    const previous = snapshot
+    const version = ++generation
+    const pending = [initializationPromise, refreshPromise, loginPromise, reauthenticationPromise].filter(Boolean)
+    initialized = true
+    publish({ status: 'initializing', operation: 'reset' })
+    resetPromise = (async () => {
+      await Promise.allSettled(pending)
+      if (version !== generation) throw changedSession()
+      try {
+        const response = await api.resetPassword(input)
+        if (version !== generation) throw changedSession()
+        if (typeof response?.message !== 'string') throw new ApiError(200, { code: 'API_ERROR', message: 'Không thể xác nhận kết quả đặt lại mật khẩu. Vui lòng thử đăng nhập lại.' })
+        initialized = true
+        publish({ status: 'unauthenticated' })
+        return response
+      } catch (error) {
+        if (version === generation) {
+          initialized = true
+          if ([400, 401, 403, 409, 503].includes(error.status)) {
+            if (previous.status === 'authenticated' && previous.expiresAt - now() > 30000) {
+              publish({ status: 'authenticated', user: previous.user, accessToken: previous.accessToken, expiresAt: previous.expiresAt })
+            } else publish({ status: 'unauthenticated' })
+          } else publish({ status: 'error', error })
+        }
+        throw error
+      }
+    })().finally(() => { resetPromise = null })
+    return resetPromise
+  }
+
+  function logout() {
+    if (logoutPromise) return logoutPromise
+    const previous = snapshot
+    const version = ++generation
+    const pending = [initializationPromise, refreshPromise, loginPromise, resetPromise, reauthenticationPromise].filter(Boolean)
+    initialized = true
+    publish(previous.status === 'authenticated'
+      ? { status: 'authenticated', user: previous.user, accessToken: previous.accessToken, expiresAt: previous.expiresAt, operation: 'logout' }
+      : { status: 'initializing', operation: 'logout' })
+    logoutPromise = (async () => {
+      await Promise.allSettled(pending)
+      if (version !== generation) throw changedSession()
+      try {
+        await api.logout()
+        if (version !== generation) throw changedSession()
+        publish({ status: 'unauthenticated' })
+      } catch (error) {
+        if (version === generation) {
+          if ([400, 401, 403, 409, 503].includes(error.status) && previous.status === 'authenticated' && previous.expiresAt - now() > 30000) {
+            publish({ status: 'authenticated', user: previous.user, accessToken: previous.accessToken, expiresAt: previous.expiresAt })
+          } else publish({ status: 'error', error })
+        }
+        throw error
+      }
+    })().finally(() => { logoutPromise = null })
+    return logoutPromise
+  }
+
   return {
     getSnapshot: () => snapshot,
     subscribe: listener => { listeners.add(listener); return () => listeners.delete(listener) },
-    initialize, ensureSession, recoverSession, retryInitialization, beginLogin, login, clearSession,
+    initialize, ensureSession, recoverSession, retryInitialization, beginLogin, login, clearSession, resetPassword, logout,
   }
 }
 

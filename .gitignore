@@ -77,3 +77,6 @@ $RECYCLE.BIN/
 
 # documentation
 docs/
+# Local homepage layout data and preview images
+/frontend/src/pages/home/homeData.local.js
+/frontend/src/assets/images/

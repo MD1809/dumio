@@ -23,7 +23,7 @@ export default function AuthProvider({ children, session = sessionStore }) {
   const value = useMemo(() => ({
     ...snapshot, initialize: session.initialize, ensureSession: session.ensureSession, recoverSession: session.recoverSession,
     login: session.login, retryInitialization: session.retryInitialization,
-    beginLogin: session.beginLogin, clearSession: session.clearSession,
+    beginLogin: session.beginLogin, clearSession: session.clearSession, resetPassword: session.resetPassword, logout: session.logout,
   }), [snapshot, session])
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>

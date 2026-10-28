@@ -7,7 +7,7 @@ export default function AuthSessionStatus() {
   const auth = useAuth()
   const navigate = useNavigate()
   if (auth.status === 'initializing') {
-    return <p className="mb-5 flex items-center gap-2 text-xs/normal text-muted" role="status"><LuLoaderCircle size={16} className="animate-spin motion-reduce:animate-none" aria-hidden="true" />{auth.operation === 'login' ? 'Đang đăng nhập...' : 'Đang kiểm tra phiên đăng nhập...'}</p>
+    return <p className="mb-5 flex items-center gap-2 text-xs/normal text-muted" role="status"><LuLoaderCircle size={16} className="animate-spin motion-reduce:animate-none" aria-hidden="true" />{auth.operation === 'login' ? 'Đang đăng nhập...' : auth.operation === 'reset' ? 'Đang cập nhật mật khẩu...' : 'Đang kiểm tra phiên đăng nhập...'}</p>
   }
   if (auth.status !== 'error') return null
   return <div className="mb-5 text-sm/normal text-muted">

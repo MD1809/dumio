@@ -1,0 +1,11 @@
+export default function HomeStudyChart({ week = [] }) {
+  return <figure className="flex min-h-88 min-w-0 flex-col rounded-xl bg-surface p-5 shadow-stat sm:p-6" aria-labelledby="study-chart-title">
+    <figcaption className="flex flex-wrap items-start justify-between gap-3"><div><h3 className="text-lg font-semibold" id="study-chart-title">Thời gian học tập</h3><p className="mt-1 text-xs leading-relaxed text-muted">Số giờ học từng ngày trong tuần</p></div><span className="mt-1 inline-flex items-center gap-2 text-xs text-muted"><span className="size-2 rounded-full bg-primary-strong" aria-hidden="true" />Tuần hiện tại</span></figcaption>
+    <div className="mt-auto pt-12 pb-6" role="img" aria-label={`Thời gian học: ${week.map(item => `${item.day}: ${item.hours.toLocaleString('vi-VN')} giờ`).join('; ')}.`}>
+      <div className="relative h-48" aria-hidden="true">
+        {[0, 1, 2, 3, 4].map(tick => <div className="absolute right-0 left-8 border-t border-text/5" style={{ bottom: `${tick / 4 * 100}%` }} key={tick}><span className="absolute right-full -mt-2 mr-3 text-[10px] text-muted/65">{tick}h</span></div>)}
+        <div className="relative grid h-full grid-cols-7 items-end gap-2 pl-8 sm:gap-4">{week.map(item => <div className="group relative mx-auto w-full max-w-10 cursor-pointer rounded-t-lg" style={{ height: `${item.hours / 4 * 100}%` }} key={item.day} title={`${item.day}: ${item.hours.toLocaleString('vi-VN')} giờ`}><div className={`h-full w-full origin-bottom rounded-t-lg transition-[transform,background-color] duration-200 ease-out motion-safe:group-hover:scale-x-110 motion-reduce:transition-none ${item.highlighted ? 'bg-primary group-hover:bg-chart-highlight-hover' : 'bg-primary-soft group-hover:bg-chart-bar-hover'}`} /><span className={`absolute -top-6 left-1/2 -translate-x-1/2 rounded-md px-1.5 py-0.5 text-[10px] whitespace-nowrap transition-colors duration-200 group-hover:bg-surface-soft group-hover:text-primary-strong motion-reduce:transition-none ${item.highlighted ? 'font-bold text-primary-strong' : 'text-muted'}`}>{item.hours.toFixed(1)}h</span><span className="absolute -bottom-6 left-1/2 -translate-x-1/2 text-[11px] text-muted">{item.day}</span></div>)}</div>
+      </div>
+    </div>
+  </figure>
+}
