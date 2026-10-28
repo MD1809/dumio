@@ -1,5 +1,7 @@
 export const PATHS = {
   ROOT: '/',
+  ADMIN_ROOT: '/admin',
+  ADMIN_DASHBOARD: '/admin/dashboard',
   LOGIN: '/login',
   REGISTER: '/register',
   VERIFY_EMAIL: '/verify-email',
