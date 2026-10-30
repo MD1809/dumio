@@ -107,7 +107,7 @@ export function createSessionStore({ api = authApi, now = Date.now } = {}) {
     return refreshSession()
   }
 
-  // For future protected reads: a late 401 must not rotate a newer token again.
+  // A late 401 must not rotate a newer token again.
   function recoverSession(rejectedAccessToken, expectedGeneration) {
     if (logoutPromise) return Promise.reject(changedSession())
     if (resetPromise) return Promise.reject(changedSession())
@@ -229,10 +229,18 @@ export function createSessionStore({ api = authApi, now = Date.now } = {}) {
     return logoutPromise
   }
 
+  // Check the live generation: beginLogin changes it before publishing its snapshot.
+  function isCurrentSession(expectedGeneration) {
+    return expectedGeneration === generation
+      && !reauthenticationPromise && !loginPromise && !resetPromise && !logoutPromise
+      && (snapshot.status === 'authenticated'
+        || (snapshot.status === 'initializing' && snapshot.operation === 'refresh'))
+  }
+
   return {
     getSnapshot: () => snapshot,
     subscribe: listener => { listeners.add(listener); return () => listeners.delete(listener) },
-    initialize, ensureSession, recoverSession, retryInitialization, beginLogin, login, clearSession, resetPassword, logout,
+    initialize, ensureSession, recoverSession, isCurrentSession, retryInitialization, beginLogin, login, clearSession, resetPassword, logout,
   }
 }
 
