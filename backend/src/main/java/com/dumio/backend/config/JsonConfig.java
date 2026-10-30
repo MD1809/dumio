@@ -16,6 +16,11 @@ public class JsonConfig {
         return builder -> builder
                 .enable(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES)
                 .enable(DeserializationFeature.FAIL_ON_IGNORED_PROPERTIES)
+                .withCoercionConfig(Long.class, config -> config
+                        .setCoercion(CoercionInputShape.Float, CoercionAction.Fail)
+                        .setCoercion(CoercionInputShape.String, CoercionAction.Fail)
+                        .setCoercion(CoercionInputShape.EmptyString, CoercionAction.Fail)
+                        .setCoercion(CoercionInputShape.Boolean, CoercionAction.Fail))
                 .withCoercionConfig(LogicalType.Textual, config -> config
                         .setCoercion(CoercionInputShape.Integer, CoercionAction.Fail)
                         .setCoercion(CoercionInputShape.Float, CoercionAction.Fail)

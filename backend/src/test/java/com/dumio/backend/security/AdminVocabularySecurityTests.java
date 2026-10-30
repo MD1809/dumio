@@ -77,7 +77,7 @@ class AdminVocabularySecurityTests {
     }
 
     @ParameterizedTest
-    @ValueSource(strings = {"/api/v1/admin/vocabulary", "/api/v1/admin/vocabulary/topics/missing/restore",
+    @ValueSource(strings = {"/api/v1/admin/vocabulary", "/api/v1/admin/vocabulary/sets/missing/restore",
             "/api/v1/admin/media", "/api/v1/admin/media/missing/content"})
     void prefixRootsAndFutureRoutesAreProtectedBeforeControllerLookup(String path) throws Exception {
         mvc.perform(get(path)).andExpect(status().isUnauthorized());

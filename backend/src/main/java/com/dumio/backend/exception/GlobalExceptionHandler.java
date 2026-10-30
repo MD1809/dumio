@@ -11,6 +11,8 @@ import org.springframework.dao.DataAccessException;
 import org.springframework.dao.DataAccessResourceFailureException;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.dao.QueryTimeoutException;
+import org.springframework.dao.OptimisticLockingFailureException;
+import org.springframework.beans.TypeMismatchException;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatusCode;
 import org.springframework.http.ResponseEntity;
@@ -57,6 +59,27 @@ public class GlobalExceptionHandler extends ResponseEntityExceptionHandler {
         return response(ex.getErrorCode());
     }
 
+    @ExceptionHandler(VocabularyException.class)
+    public ResponseEntity<ErrorResponse> handleVocabulary(VocabularyException ex) {
+        return ResponseEntity.status(ex.getErrorCode().getHttpStatus())
+                .body(new ErrorResponse(ex.getErrorCode().getCode(), ex.getMessage(), ex.getFieldErrors()));
+    }
+
+    @ExceptionHandler({OptimisticLockingFailureException.class, jakarta.persistence.OptimisticLockException.class})
+    public ResponseEntity<ErrorResponse> handleVocabularyVersion(Exception ex) {
+        return response(ErrorCode.VOCABULARY_VERSION_CONFLICT);
+    }
+
+    @Override
+    protected ResponseEntity<Object> handleTypeMismatch(TypeMismatchException ex,
+            HttpHeaders headers, HttpStatusCode status, WebRequest request) {
+        String field = ex instanceof org.springframework.web.method.annotation.MethodArgumentTypeMismatchException argument
+                ? argument.getName() : "input";
+        ErrorCode code = ErrorCode.VALIDATION_ERROR;
+        return new ResponseEntity<>(new ErrorResponse(code.getCode(), code.getMessage(),
+                List.of(new FieldErrorResponse(field, "Giá trị không đúng định dạng"))), headers, code.getHttpStatus());
+    }
+
     @ExceptionHandler(AccessDeniedException.class)
     public void handleAccessDenied(AccessDeniedException ex) {
         // Method security failures must reach Spring Security's AccessDeniedHandler.
@@ -78,6 +101,12 @@ public class GlobalExceptionHandler extends ResponseEntityExceptionHandler {
     public ResponseEntity<ErrorResponse> handleDataIntegrity(DataIntegrityViolationException ex) {
         Throwable cause = ex;
         while (cause != null) {
+            if (cause instanceof SQLException sql && "23505".equals(sql.getSQLState())
+                    && sql.getMessage() != null && sql.getMessage().contains("\"uk_vocabulary_topics_active_name\"")) {
+                ErrorCode code = ErrorCode.VOCABULARY_TOPIC_NAME_EXISTS;
+                return ResponseEntity.status(code.getHttpStatus()).body(new ErrorResponse(code.getCode(), code.getMessage(),
+                        List.of(new FieldErrorResponse("name", code.getMessage()))));
+            }
             if (cause instanceof SQLException sql && "23505".equals(sql.getSQLState())
                     && sql.getMessage() != null && sql.getMessage().contains("\"uk_users_email\"")) {
                 return response(ErrorCode.EMAIL_ALREADY_EXISTS);

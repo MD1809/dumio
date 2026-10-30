@@ -13,6 +13,11 @@ public enum ErrorCode {
     CSRF_INVALID(HttpStatus.FORBIDDEN, "CSRF_INVALID", "Yêu cầu xác thực không hợp lệ, vui lòng thử lại"),
     ACCESS_DENIED(HttpStatus.FORBIDDEN, "ACCESS_DENIED", "Bạn không có quyền thực hiện thao tác này"),
     EMAIL_ALREADY_EXISTS(HttpStatus.CONFLICT, "EMAIL_ALREADY_EXISTS", "Email đã được sử dụng"),
+    VOCABULARY_TOPIC_NAME_EXISTS(HttpStatus.CONFLICT, "VOCABULARY_TOPIC_NAME_EXISTS", "Tên chủ đề đã được sử dụng"),
+    VOCABULARY_VERSION_CONFLICT(HttpStatus.CONFLICT, "VOCABULARY_VERSION_CONFLICT", "Dữ liệu đã thay đổi. Vui lòng tải lại trước khi thao tác"),
+    VOCABULARY_STATE_CONFLICT(HttpStatus.CONFLICT, "VOCABULARY_STATE_CONFLICT", "Trạng thái dữ liệu đã thay đổi. Vui lòng tải lại trước khi thao tác"),
+    VOCABULARY_ARCHIVED(HttpStatus.CONFLICT, "VOCABULARY_ARCHIVED", "Dữ liệu đã lưu trữ. Vui lòng khôi phục trước khi chỉnh sửa"),
+    VOCABULARY_NOT_FOUND(HttpStatus.NOT_FOUND, "VOCABULARY_NOT_FOUND", "Không tìm thấy dữ liệu từ vựng"),
     SERVICE_UNAVAILABLE(HttpStatus.SERVICE_UNAVAILABLE, "SERVICE_UNAVAILABLE", "Dịch vụ tạm thời không khả dụng"),
     INTERNAL_SERVER_ERROR(HttpStatus.INTERNAL_SERVER_ERROR, "INTERNAL_SERVER_ERROR", "Đã xảy ra lỗi hệ thống");
 
